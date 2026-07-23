@@ -1,0 +1,390 @@
+#!/usr/bin/env python3
+"""Regenerate dashboard.html from progress.json. Stdlib only, no server.
+
+Usage:  python3 build_dashboard.py
+        python3 build_dashboard.py --test    # run self-checks
+"""
+import json
+import sys
+from datetime import date, timedelta
+from pathlib import Path
+
+ROOT = Path(__file__).parent
+
+# The official LeetCode 75 study plan, in plan order.
+# (leetcode_id, title, difficulty, section)
+SEED = [
+    (1768, "Merge Strings Alternately", "easy", "01-array-string"),
+    (1071, "Greatest Common Divisor of Strings", "easy", "01-array-string"),
+    (1431, "Kids With the Greatest Number of Candies", "easy", "01-array-string"),
+    (605, "Can Place Flowers", "easy", "01-array-string"),
+    (345, "Reverse Vowels of a String", "easy", "01-array-string"),
+    (151, "Reverse Words in a String", "medium", "01-array-string"),
+    (238, "Product of Array Except Self", "medium", "01-array-string"),
+    (334, "Increasing Triplet Subsequence", "medium", "01-array-string"),
+    (443, "String Compression", "medium", "01-array-string"),
+    (283, "Move Zeroes", "easy", "02-two-pointers"),
+    (392, "Is Subsequence", "easy", "02-two-pointers"),
+    (11, "Container With Most Water", "medium", "02-two-pointers"),
+    (1679, "Max Number of K-Sum Pairs", "medium", "02-two-pointers"),
+    (643, "Maximum Average Subarray I", "easy", "03-sliding-window"),
+    (1456, "Maximum Number of Vowels in a Substring of Given Length", "medium", "03-sliding-window"),
+    (1004, "Max Consecutive Ones III", "medium", "03-sliding-window"),
+    (1493, "Longest Subarray of 1's After Deleting One Element", "medium", "03-sliding-window"),
+    (1732, "Find the Highest Altitude", "easy", "04-prefix-sum"),
+    (724, "Find Pivot Index", "easy", "04-prefix-sum"),
+    (2215, "Find the Difference of Two Arrays", "easy", "05-hash-map-set"),
+    (1207, "Unique Number of Occurrences", "easy", "05-hash-map-set"),
+    (1657, "Determine if Two Strings Are Close", "medium", "05-hash-map-set"),
+    (2352, "Equal Row and Column Pairs", "medium", "05-hash-map-set"),
+    (2390, "Removing Stars From a String", "medium", "06-stack"),
+    (735, "Asteroid Collision", "medium", "06-stack"),
+    (394, "Decode String", "medium", "06-stack"),
+    (933, "Number of Recent Calls", "easy", "07-queue"),
+    (649, "Dota2 Senate", "medium", "07-queue"),
+    (2095, "Delete the Middle Node of a Linked List", "medium", "08-linked-list"),
+    (328, "Odd Even Linked List", "medium", "08-linked-list"),
+    (206, "Reverse Linked List", "easy", "08-linked-list"),
+    (2130, "Maximum Twin Sum of a Linked List", "medium", "08-linked-list"),
+    (104, "Maximum Depth of Binary Tree", "easy", "09-binary-tree-dfs"),
+    (872, "Leaf-Similar Trees", "easy", "09-binary-tree-dfs"),
+    (1448, "Count Good Nodes in Binary Tree", "medium", "09-binary-tree-dfs"),
+    (437, "Path Sum III", "medium", "09-binary-tree-dfs"),
+    (1372, "Longest ZigZag Path in a Binary Tree", "medium", "09-binary-tree-dfs"),
+    (236, "Lowest Common Ancestor of a Binary Tree", "medium", "09-binary-tree-dfs"),
+    (199, "Binary Tree Right Side View", "medium", "10-binary-tree-bfs"),
+    (1161, "Maximum Level Sum of a Binary Tree", "medium", "10-binary-tree-bfs"),
+    (700, "Search in a Binary Search Tree", "easy", "11-bst"),
+    (450, "Delete Node in a BST", "medium", "11-bst"),
+    (841, "Keys and Rooms", "medium", "12-graphs-dfs"),
+    (547, "Number of Provinces", "medium", "12-graphs-dfs"),
+    (1466, "Reorder Routes to Make All Paths Lead to the City Zero", "medium", "12-graphs-dfs"),
+    (399, "Evaluate Division", "medium", "12-graphs-dfs"),
+    (1926, "Nearest Exit from Entrance in Maze", "medium", "13-graphs-bfs"),
+    (994, "Rotting Oranges", "medium", "13-graphs-bfs"),
+    (215, "Kth Largest Element in an Array", "medium", "14-heap"),
+    (2336, "Smallest Number in Infinite Set", "medium", "14-heap"),
+    (2542, "Maximum Subsequence Score", "medium", "14-heap"),
+    (2462, "Total Cost to Hire K Workers", "medium", "14-heap"),
+    (374, "Guess Number Higher or Lower", "easy", "15-binary-search"),
+    (2300, "Successful Pairs of Spells and Potions", "medium", "15-binary-search"),
+    (162, "Find Peak Element", "medium", "15-binary-search"),
+    (875, "Koko Eating Bananas", "medium", "15-binary-search"),
+    (17, "Letter Combinations of a Phone Number", "medium", "16-backtracking"),
+    (216, "Combination Sum III", "medium", "16-backtracking"),
+    (1137, "N-th Tribonacci Number", "easy", "17-dp-1d"),
+    (746, "Min Cost Climbing Stairs", "easy", "17-dp-1d"),
+    (198, "House Robber", "medium", "17-dp-1d"),
+    (790, "Domino and Tromino Tiling", "medium", "17-dp-1d"),
+    (62, "Unique Paths", "medium", "18-dp-multidimensional"),
+    (1143, "Longest Common Subsequence", "medium", "18-dp-multidimensional"),
+    (714, "Best Time to Buy and Sell Stock with Transaction Fee", "medium", "18-dp-multidimensional"),
+    (72, "Edit Distance", "medium", "18-dp-multidimensional"),
+    (338, "Counting Bits", "easy", "19-bit-manipulation"),
+    (136, "Single Number", "easy", "19-bit-manipulation"),
+    (1318, "Minimum Flips to Make a OR b Equal to c", "medium", "19-bit-manipulation"),
+    (208, "Implement Trie (Prefix Tree)", "medium", "20-trie"),
+    (1268, "Search Suggestions System", "medium", "20-trie"),
+    (435, "Non-overlapping Intervals", "medium", "21-intervals"),
+    (452, "Minimum Number of Arrows to Burst Balloons", "medium", "21-intervals"),
+    (739, "Daily Temperatures", "medium", "22-monotonic-stack"),
+    (901, "Online Stock Span", "medium", "22-monotonic-stack"),
+]
+assert len(SEED) == 75, f"seed list has {len(SEED)} problems, expected 75"
+assert len({p[0] for p in SEED}) == 75, "duplicate problem id in seed list"
+
+INTERVALS = [1, 7, 30]  # days after solve date
+
+
+def slug(title):
+    # apostrophes vanish rather than becoming separators: "1's" -> "1s", matching LC's own urls
+    title = title.replace("'", "")
+    keep = [c.lower() if c.isalnum() else "-" for c in title]
+    out = "".join(keep)
+    while "--" in out:
+        out = out.replace("--", "-")
+    return out.strip("-")
+
+
+def next_review(entry, today):
+    """Next due date, or None if the problem has graduated past the last interval.
+
+    reviews = list of dates already completed. confidence<=2 halves the interval
+    so shaky problems come back sooner.
+    """
+    done = len(entry.get("reviews", []))
+    if done >= len(INTERVALS):
+        return None
+    gap = INTERVALS[done]
+    if entry.get("confidence", 3) <= 2:
+        gap = max(1, gap // 2)
+    last = entry.get("reviews", [None])[-1] if done else entry["date"]
+    return date.fromisoformat(last) + timedelta(days=gap)
+
+
+def streak(dates, today):
+    """Consecutive days ending today or yesterday. Yesterday still counts —
+    today isn't over yet, and a streak that dies at midnight is a punishment."""
+    days = set(dates)
+    if not days:
+        return 0
+    cur = today if today.isoformat() in days else today - timedelta(days=1)
+    n = 0
+    while cur.isoformat() in days:
+        n += 1
+        cur -= timedelta(days=1)
+    return n
+
+
+def build(progress, today):
+    by_id = {e["id"]: e for e in progress}
+    problems = []
+    for pid, title, diff, section in SEED:
+        e = by_id.get(pid)
+        due = next_review(e, today) if e else None
+        problems.append({
+            "id": pid, "title": title, "diff": diff, "section": section,
+            "slug": slug(title),
+            "solved": bool(e),
+            "pattern": (e or {}).get("pattern", ""),
+            "confidence": (e or {}).get("confidence", 0),
+            "date": (e or {}).get("date", ""),
+            "minutes": (e or {}).get("minutes", 0),
+            "solo": (e or {}).get("solo", ""),
+            "due": due.isoformat() if due else "",
+            "overdue": (today - due).days if due and due <= today else None,
+        })
+    stats = {
+        "solved": len(progress),
+        "total": len(SEED),
+        "easy": sum(1 for p in problems if p["solved"] and p["diff"] == "easy"),
+        "easyTotal": sum(1 for p in SEED if p[2] == "easy"),
+        "medium": sum(1 for p in problems if p["solved"] and p["diff"] == "medium"),
+        "mediumTotal": sum(1 for p in SEED if p[2] == "medium"),
+        "streak": streak([e["date"] for e in progress], today),
+        "days": len({e["date"] for e in progress}),
+        "today": today.isoformat(),
+    }
+    nxt = next((p for p in problems if not p["solved"]), None)
+    stats["next"] = f'{nxt["id"]}. {nxt["title"]} ({nxt["diff"]})' if nxt else "all 75 done"
+    return problems, stats
+
+
+def mermaid(problems):
+    """Section -> Pattern -> Problem. Only solved problems get a pattern node;
+    unsolved sections still appear so the map shows the whole territory."""
+    lines = ["graph LR"]
+    sections = list(dict.fromkeys(p["section"] for p in problems))
+    for si, sec in enumerate(sections):
+        sid = f"S{si}"
+        members = [p for p in problems if p["section"] == sec]
+        done = sum(1 for p in members if p["solved"])
+        lines.append(f'  {sid}["{sec[3:].replace("-", " ")}<br/>{done}/{len(members)}"]')
+        lines.append(f"  class {sid} {'secdone' if done == len(members) else 'sec'}")
+        patterns = list(dict.fromkeys(p["pattern"] for p in members if p["solved"] and p["pattern"]))
+        for pi, pat in enumerate(patterns):
+            pid_ = f"P{si}_{pi}"
+            lines.append(f'  {pid_}("{pat}")')
+            lines.append(f"  class {pid_} pat")
+            lines.append(f"  {sid} --> {pid_}")
+            for p in members:
+                if p["solved"] and p["pattern"] == pat:
+                    lines.append(f'  {pid_} --> N{p["id"]}["{p["id"]}"]')
+                    lines.append(f"  class N{p['id']} done")
+        unsolved = [p for p in members if not p["solved"]]
+        if unsolved:
+            lines.append(f'  {sid} -.-> U{si}["{len(unsolved)} unsolved"]')
+            lines.append(f"  class U{si} todo")
+    lines.append("  classDef sec fill:#1f2937,stroke:#4b5563,color:#e5e7eb")
+    lines.append("  classDef secdone fill:#065f46,stroke:#10b981,color:#d1fae5")
+    lines.append("  classDef pat fill:#312e81,stroke:#6366f1,color:#e0e7ff")
+    lines.append("  classDef done fill:#064e3b,stroke:#10b981,color:#a7f3d0")
+    lines.append("  classDef todo fill:#111827,stroke:#374151,color:#4b5563")
+    return "\n".join(lines)
+
+
+TEMPLATE = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LeetCode 75 — progress</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+:root{color-scheme:dark}
+body{margin:0;padding:2rem;background:#0b0f19;color:#e5e7eb;
+ font:15px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+.wrap{max-width:1100px;margin:0 auto}
+h1{font-size:1.5rem;margin:0 0 .25rem}
+h2{font-size:1rem;text-transform:uppercase;letter-spacing:.08em;color:#9ca3af;
+ margin:2.5rem 0 .75rem;border-bottom:1px solid #1f2937;padding-bottom:.4rem}
+.sub{color:#6b7280;margin:0 0 2rem}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:.75rem}
+.card{background:#111827;border:1px solid #1f2937;border-radius:10px;padding:.9rem 1rem}
+.card .n{font-size:1.7rem;font-weight:600;line-height:1.1}
+.card .l{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:#6b7280;margin-top:.2rem}
+.bar{height:8px;background:#1f2937;border-radius:99px;overflow:hidden;margin:.6rem 0 0}
+.bar>i{display:block;height:100%;background:linear-gradient(90deg,#10b981,#34d399)}
+.next{background:#111827;border:1px solid #10b981;border-radius:10px;padding:1rem;margin-top:1rem}
+.next b{color:#34d399}
+table{width:100%;border-collapse:collapse;font-size:.9rem}
+th{text-align:left;color:#6b7280;font-weight:500;font-size:.75rem;text-transform:uppercase;
+ letter-spacing:.05em;padding:.4rem .6rem;border-bottom:1px solid #1f2937}
+td{padding:.45rem .6rem;border-bottom:1px solid #131a29}
+tr:hover td{background:#111827}
+a{color:#60a5fa;text-decoration:none}a:hover{text-decoration:underline}
+.easy{color:#34d399}.medium{color:#fbbf24}
+.pill{background:#1f2937;border-radius:99px;padding:.1rem .55rem;font-size:.75rem;color:#9ca3af}
+.late{color:#f87171;font-weight:600}
+.empty{color:#6b7280;font-style:italic;padding:1rem 0}
+.scroll{overflow-x:auto}
+.mini{height:6px;background:#1f2937;border-radius:99px;width:150px;display:inline-block;
+ vertical-align:middle;overflow:hidden}
+#sections td:nth-child(2){width:160px}
+#sections td:nth-child(3){width:60px;color:#9ca3af}
+#sections th:first-child,#sections td:first-child{width:200px}
+.mini>i{display:block;height:100%;background:#10b981}
+.dots{letter-spacing:2px;color:#4b5563}
+.mermaid{background:#0d1220;border:1px solid #1f2937;border-radius:10px;padding:1rem;
+ overflow-x:auto;text-align:center}
+</style></head><body><div class="wrap">
+<h1>LeetCode 75</h1>
+<p class="sub">One problem a day. Solo first, debrief after. Missing a day costs a number, nothing else.</p>
+
+<div class="stats">
+  <div class="card"><div class="n" id="s-solved"></div><div class="l">solved / 75</div>
+    <div class="bar"><i id="s-bar"></i></div></div>
+  <div class="card"><div class="n" id="s-streak"></div><div class="l">day streak</div></div>
+  <div class="card"><div class="n" id="s-easy"></div><div class="l">easy</div></div>
+  <div class="card"><div class="n" id="s-medium"></div><div class="l">medium</div></div>
+  <div class="card"><div class="n" id="s-due"></div><div class="l">due for review</div></div>
+</div>
+<div class="next">Next up: <b id="s-next"></b></div>
+
+<h2>Review queue</h2>
+<div id="queue"></div>
+
+<h2>Mind map — section → pattern → problem</h2>
+<pre class="mermaid">__MERMAID__</pre>
+
+<h2>Sections</h2>
+<div class="scroll"><table id="sections"></table></div>
+
+<h2>Solved log</h2>
+<div class="scroll"><div id="log"></div></div>
+</div>
+<script>
+const PROBLEMS = __PROBLEMS__;
+const STATS = __STATS__;
+
+const $ = id => document.getElementById(id);
+const lc = p => `https://leetcode.com/problems/${p.slug}/`;
+const notes = p => `solutions/${p.section}/${p.id}-${p.slug}/notes.md`;
+const due = PROBLEMS.filter(p => p.overdue !== null);
+
+$('s-solved').textContent = `${STATS.solved}/${STATS.total}`;
+$('s-bar').style.width = (100 * STATS.solved / STATS.total) + '%';
+$('s-streak').textContent = STATS.streak;
+$('s-easy').textContent = `${STATS.easy}/${STATS.easyTotal}`;
+$('s-medium').textContent = `${STATS.medium}/${STATS.mediumTotal}`;
+$('s-due').textContent = due.length;
+$('s-next').textContent = STATS.next;
+
+if (!due.length) {
+  $('queue').innerHTML = '<p class="empty">Nothing due. Do the next new problem.</p>';
+} else {
+  due.sort((a, b) => b.overdue - a.overdue);
+  $('queue').innerHTML = '<div class="scroll"><table><tr><th>#</th><th>Problem</th>' +
+    '<th>Pattern</th><th>Due</th><th>Notes</th></tr>' +
+    due.map(p => `<tr><td>${p.id}</td>
+      <td><a href="${lc(p)}" target="_blank">${p.title}</a></td>
+      <td><span class="pill">${p.pattern || '—'}</span></td>
+      <td class="${p.overdue > 0 ? 'late' : ''}">${p.overdue > 0 ? p.overdue + 'd overdue' : 'today'}</td>
+      <td><a href="${notes(p)}">notes</a></td></tr>`).join('') + '</table></div>';
+}
+
+const secs = [...new Set(PROBLEMS.map(p => p.section))];
+$('sections').innerHTML = '<tr><th>Section</th><th>Progress</th><th></th><th>Confidence</th></tr>' +
+  secs.map(s => {
+    const m = PROBLEMS.filter(p => p.section === s);
+    const d = m.filter(p => p.solved);
+    const c = d.length ? (d.reduce((a, p) => a + p.confidence, 0) / d.length) : 0;
+    return `<tr><td>${s.slice(3).replace(/-/g, ' ')}</td>
+      <td><span class="mini"><i style="width:${100 * d.length / m.length}%"></i></span></td>
+      <td>${d.length}/${m.length}</td>
+      <td class="dots">${c ? '●'.repeat(Math.round(c)) + '○'.repeat(5 - Math.round(c)) : '—'}</td></tr>`;
+  }).join('');
+
+const solved = PROBLEMS.filter(p => p.solved).sort((a, b) => b.date.localeCompare(a.date));
+$('log').innerHTML = solved.length
+  ? '<table><tr><th>Date</th><th>#</th><th>Problem</th><th>Diff</th><th>Solo</th>' +
+    '<th>Min</th><th>Pattern</th><th>Notes</th></tr>' +
+    solved.map(p => `<tr><td>${p.date}</td><td>${p.id}</td>
+      <td><a href="${lc(p)}" target="_blank">${p.title}</a></td>
+      <td class="${p.diff}">${p.diff}</td><td>${p.solo}</td><td>${p.minutes}</td>
+      <td><span class="pill">${p.pattern || '—'}</span></td>
+      <td><a href="${notes(p)}">notes</a></td></tr>`).join('') + '</table>'
+  : '<p class="empty">Nothing yet. Day 1 is 1768. Merge Strings Alternately.</p>';
+
+mermaid.initialize({startOnLoad: true, theme: 'dark',
+  themeVariables: {background: '#0d1220', fontSize: '13px'}});
+</script></body></html>
+"""
+
+
+def render(problems, stats):
+    return (TEMPLATE
+            .replace("__MERMAID__", mermaid(problems))
+            .replace("__PROBLEMS__", json.dumps(problems))
+            .replace("__STATS__", json.dumps(stats)))
+
+
+def demo():
+    """Self-checks for the only non-trivial logic here: review dates and streaks."""
+    t = date(2026, 8, 1)
+    # first review = solve date + 1
+    assert next_review({"date": "2026-08-01", "confidence": 4, "reviews": []}, t) == date(2026, 8, 2)
+    # second = last review + 7
+    assert next_review({"date": "2026-08-01", "confidence": 4,
+                        "reviews": ["2026-08-02"]}, t) == date(2026, 8, 9)
+    # third = last review + 30
+    assert next_review({"date": "2026-08-01", "confidence": 4,
+                        "reviews": ["2026-08-02", "2026-08-09"]}, t) == date(2026, 9, 8)
+    # graduated after 3 reviews
+    assert next_review({"date": "2026-08-01", "confidence": 4,
+                        "reviews": ["a", "b", "c"]}, t) is None
+    # low confidence halves the gap (7 -> 3), and never goes below 1
+    assert next_review({"date": "2026-08-01", "confidence": 2,
+                        "reviews": ["2026-08-02"]}, t) == date(2026, 8, 5)
+    assert next_review({"date": "2026-08-01", "confidence": 1, "reviews": []}, t) == date(2026, 8, 2)
+
+    assert streak([], t) == 0
+    assert streak(["2026-08-01"], t) == 1
+    assert streak(["2026-07-31"], t) == 1                      # yesterday still counts
+    assert streak(["2026-07-30"], t) == 0                      # two days ago does not
+    assert streak(["2026-08-01", "2026-07-31", "2026-07-30"], t) == 3
+    assert streak(["2026-08-01", "2026-07-30"], t) == 1        # gap breaks it
+
+    assert slug("Best Time to Buy and Sell Stock with Transaction Fee") == \
+        "best-time-to-buy-and-sell-stock-with-transaction-fee"
+    assert slug("Implement Trie (Prefix Tree)") == "implement-trie-prefix-tree"
+    assert slug("Longest Subarray of 1's After Deleting One Element") == \
+        "longest-subarray-of-1s-after-deleting-one-element"
+
+    probs, st = build([], t)
+    assert st["solved"] == 0 and st["next"].startswith("1768.")
+    probs, st = build([{"id": 1768, "date": "2026-08-01", "confidence": 3,
+                        "pattern": "two-index-interleave", "minutes": 20,
+                        "solo": "solved", "reviews": []}], t)
+    assert st["solved"] == 1 and st["easy"] == 1 and st["next"].startswith("1071.")
+    assert [p for p in probs if p["id"] == 1768][0]["due"] == "2026-08-02"
+    print("all checks passed")
+
+
+if __name__ == "__main__":
+    if "--test" in sys.argv:
+        demo()
+        sys.exit(0)
+    progress = json.loads((ROOT / "progress.json").read_text())
+    problems, stats = build(progress, date.today())
+    (ROOT / "dashboard.html").write_text(render(problems, stats))
+    print(f"dashboard.html — {stats['solved']}/{stats['total']} solved, "
+          f"{stats['streak']} day streak, next: {stats['next']}")
