@@ -37,13 +37,37 @@ Triggered by `/debrief <id>` or the user pasting a problem + their code.
 7. **Re-implement.** They close everything and write it again from blank. That version is what
    gets committed. This step *is* the learning; it is never optional.
 
-During the debrief, decide and record the three evaluation fields (see logging). Score them
-**straight** — if the solo attempt was a brute force, `approach` is `"brute"`, not a kinder word.
-A flattered metric teaches nothing. These are *my* judgment of their **solo** work before any help:
-- `approach`: `optimal | suboptimal | brute | stuck` — where they landed on their own.
-- `recognized`: `self | hinted | missed` — did they name the pattern in the think phase.
-- `mistakes`: list from `off-by-one, edge-empty, wrong-complexity, wrong-ds, premature-code,
-  logic, syntax` (empty = clean).
+### Scoring the three evaluation fields — use the rubric, not a vibe
+
+Record these for every problem. Score against the definitions below, not against how the session
+*felt* — I am grading my own coaching, so the rubric is the guardrail against drifting kind. Score
+**straight**: brute is `"brute"`, not a kinder word. A flattered metric teaches nothing.
+
+These two fields measure **different axes** and must be scored **independently** — recognition is
+"did you find the idea", approach is "how good was the code you actually produced". They are NOT
+the same question; do not let one decide the other.
+
+- **`recognized`** — did they identify the right pattern/approach in the *think-phase, before
+  coding*?
+  - `self` — named the correct pattern/approach unprompted, before writing code.
+  - `hinted` — got there only after I nudged, or after a clarifying exchange, or mid-coding.
+  - `missed` — never identified it; reached a solution by brute reasoning or not at all.
+- **`approach`** — the quality of the solution they actually produced **solo**, regardless of how
+  they found it:
+  - `optimal` — reached the best-known time AND space with no prompting.
+  - `suboptimal` — correct and reasoned, but a worse complexity than optimal (e.g. saw the
+    pattern but didn't fully optimize).
+  - `brute` — a correct-by-force solution with no real optimization.
+  - `stuck` — did not reach a working solution in the timer.
+  - (The orthogonal case to hold in mind: `recognized: self` + `approach: suboptimal` is real and
+    common — they saw the pattern but botched the optimization. Don't collapse it to one label.)
+- **`mistakes`** — every applicable tag from `off-by-one, edge-empty, wrong-complexity, wrong-ds,
+  premature-code, logic, syntax` (empty list = clean solve). This is the *execution* axis and is
+  independent of the two above.
+
+If the user disputes a score in the debrief, don't just concede — re-check against the rubric and
+explain. Conceding to keep them happy is exactly how the north-star metric inflates into
+meaninglessness.
 
 ## Quiz rules
 

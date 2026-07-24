@@ -50,6 +50,14 @@ Every solved problem comes back at **+1 day, +7 days, +30 days**. Anything you r
 ≤ 2 comes back twice as fast. A review takes ~10 minutes and does **not** use up the day's new
 problem.
 
+### 4. Mock interview — `/mock` (as needed)
+
+The daily loop builds silent, written problem-solving. Interviews are verbal and live. `/mock`
+runs a real mock: you talk through a problem out loud while the AI plays an interviewer that
+interrupts, probes your reasoning, and rations hints — then scores you on communication,
+clarifying questions, complexity, and composure, not just correctness. Separate from the daily
+problem; do a few in the weeks before interviews.
+
 ---
 
 ## How the dashboard reads you

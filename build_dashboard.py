@@ -128,13 +128,14 @@ def recognition_rate(solved, window=WINDOW):
 
 def trend(solved, pred, window=WINDOW):
     """up / flat / down comparing the last `window` to the window before it.
-    None until two full windows of data exist — a single window has nothing to
-    compare against, and inventing a direction there would be the small-n lie."""
+    None unless BOTH windows hold at least MIN_RATE_N samples — a direction drawn
+    from a 1-2 problem prior window is exactly the small-n lie we promise not to
+    tell. The old `len(chron) < 2*MIN_RATE_N` guard let the prior window shrink to
+    1 sample between 11 and 19 solves (window > MIN_RATE_N), so it's replaced by
+    checking each slice after the fact."""
     chron = _chron(solved)
-    if len(chron) < 2 * MIN_RATE_N:
-        return None
     recent, prior = chron[-window:], chron[-2 * window:-window]
-    if not prior:
+    if len(recent) < MIN_RATE_N or len(prior) < MIN_RATE_N:
         return None
     r = sum(1 for e in recent if pred(e)) / len(recent)
     p = sum(1 for e in prior if pred(e)) / len(prior)
@@ -164,7 +165,7 @@ def solve_time_trend(solved, diff, window=WINDOW):
     recent = chron[-window:]
     prior = chron[-2 * window:-window]
     rm = _median([e["minutes"] for e in recent])
-    if not prior:
+    if len(prior) < MIN_RATE_N:   # no direction off a thin prior window (same guard as trend)
         return rm, None, None
     pm = _median([e["minutes"] for e in prior])
     direction = "down" if rm < pm - 2 else "up" if rm > pm + 2 else "flat"
@@ -261,7 +262,35 @@ def streak(dates, today):
     return n
 
 
+def validate(progress):
+    """Fail loud with a human-readable message on bad progress.json, instead of a
+    raw traceback (the file is hand-edited daily, so typos are expected). Checks:
+    known id, no duplicate ids, parseable ISO date. Returns progress unchanged."""
+    seen = set()
+    for i, e in enumerate(progress):
+        where = f"entry #{i + 1}"
+        if "id" not in e or "date" not in e:
+            raise ValueError(f"{where} in progress.json is missing 'id' or 'date'.")
+        if e["id"] not in _SEED_DIFF:
+            raise ValueError(f"{where}: id {e['id']} is not a LeetCode 75 problem. "
+                             f"Check the number against the seed list.")
+        if e["id"] in seen:
+            raise ValueError(f"{where}: id {e['id']} appears twice. One record per problem.")
+        seen.add(e["id"])
+        try:
+            date.fromisoformat(e["date"])
+        except (ValueError, TypeError):
+            raise ValueError(f"{where} (id {e['id']}): date {e['date']!r} is not YYYY-MM-DD.")
+        for r in e.get("reviews", []):
+            try:
+                date.fromisoformat(r)
+            except (ValueError, TypeError):
+                raise ValueError(f"{where} (id {e['id']}): review date {r!r} is not YYYY-MM-DD.")
+    return progress
+
+
 def build(progress, today):
+    validate(progress)
     by_id = {e["id"]: e for e in progress}
     problems = []
     for pid, title, diff, section in SEED:
@@ -287,7 +316,8 @@ def build(progress, today):
             "reason": attention_reason(e) if e else "",
         })
     stats = {
-        "solved": len(progress),
+        # derived from rendered problems, not len(progress), so solved == easy+medium always
+        "solved": sum(1 for p in problems if p["solved"]),
         "total": len(SEED),
         "easy": sum(1 for p in problems if p["solved"] and p["diff"] == "easy"),
         "easyTotal": sum(1 for p in SEED if p[2] == "easy"),
@@ -371,6 +401,7 @@ def diagnosis(solved, problems):
         pct = round(100 * ofr[0])
         t = trend(solved, lambda e: e.get("approach") == "optimal")
         arrow = {"up": ", and rising", "down": ", and slipping lately", "flat": ""}.get(t, "")
+        # tiers match the hero tile exactly (good >=60, watch 40-59, gap <40)
         if pct >= 60:
             flags.append((
                 "good",
@@ -380,8 +411,9 @@ def diagnosis(solved, problems):
                 "Keep pushing the think-phase before you code. When you do miss optimal, that problem "
                 "is the one worth re-solving."))
         else:
+            level = "watch" if pct >= 40 else "gap"
             flags.append((
-                "gap",
+                level,
                 f"You reach the optimal idea on your own {pct}% of the time (last {ofr[1]} problems)"
                 f"{arrow}. Usually you get to working code but stop before the insight that removes "
                 f"the extra time or space. That gap is the single biggest interview risk.",
@@ -496,6 +528,7 @@ TEMPLATE = """<!doctype html>
   --good:#22c55e; --watch:#fab219; --gap:#f16b6b;
   --s-blue:#3987e5; --s-aqua:#1baf7a; --s-violet:#9085e9; --s-gray:#3a3a37;
   --good-ink:#4ade80; --watch-ink:#fbbf24; --gap-ink:#f87171;
+  --link:#6aa6f2;
 }
 :root[data-theme="light"]{
   --page:#f4f3ef; --surface:#ffffff; --surface-2:#f7f6f2;
@@ -504,6 +537,7 @@ TEMPLATE = """<!doctype html>
   --good:#0a8f0a; --watch:#b47600; --gap:#c62f2f;
   --s-blue:#256abf; --s-aqua:#0f8a5f; --s-violet:#4a3aa7; --s-gray:#c3c2b7;
   --good-ink:#0a7a0a; --watch-ink:#8a5a00; --gap-ink:#b02525;
+  --link:#1a5fb4;
 }
 *{box-sizing:border-box}
 html{font-size:calc(18px * var(--scale))}
@@ -511,8 +545,7 @@ body{margin:0;padding:0 0 4rem;background:var(--page);color:var(--ink);
  font-family:system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.7;
  -webkit-font-smoothing:antialiased}
 .wrap{max-width:1000px;margin:0 auto;padding:0 1.25rem}
-a{color:var(--s-blue);text-decoration:underline;text-underline-offset:2px}
-:root[data-theme="light"] a{color:#1a5fb4}
+a{color:var(--link);text-decoration:underline;text-underline-offset:2px}
 a:hover{text-decoration:none}
 :focus-visible{outline:3px solid var(--s-blue);outline-offset:2px;border-radius:4px}
 
@@ -548,20 +581,21 @@ h2 .num{color:var(--muted);font-weight:600;font-size:1rem;margin-left:.5rem}
 .hero .fig{font-size:4.5rem;font-weight:700;line-height:1;letter-spacing:-.02em}
 .hero .fig.good{color:var(--good-ink)} .hero .fig.gap{color:var(--gap-ink)}
 .hero .fig.watch{color:var(--watch-ink)} .hero .fig.none{color:var(--muted);font-size:2.2rem}
-.hero .side{flex:1;min-width:16ch}
+.hero .side{flex:1;min-width:16ch;max-width:60ch}
 .hero .side .t{font-size:1.15rem;font-weight:600;margin-bottom:.2rem}
 .hero .side .d{color:var(--ink-2)}
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.9rem;
  margin-bottom:1.25rem}
-.tile{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:1.1rem 1.2rem}
+.tile{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:1.1rem 1.2rem;
+ display:flex;flex-direction:column}
 .tile .v{font-size:2.4rem;font-weight:700;line-height:1.05}
 .tile .k{font-size:.95rem;color:var(--muted);margin-top:.25rem}
-.tile .track{height:10px;background:var(--surface-2);border-radius:99px;overflow:hidden;margin-top:.6rem;
+.tile .track{height:.6rem;background:var(--surface-2);border-radius:99px;overflow:hidden;margin-top:auto;
  border:1px solid var(--border)}
 .tile .track>i{display:block;height:100%;background:var(--good)}
 
 .next{background:var(--surface);border:2px solid var(--good);border-radius:14px;
- padding:1.1rem 1.3rem;margin-bottom:.5rem;font-size:1.15rem}
+ padding:1.1rem 1.3rem;margin-bottom:.5rem;font-size:1.15rem;max-width:72ch}
 .next b{color:var(--good-ink)}
 
 /* ---- diagnosis ---- */
@@ -576,7 +610,7 @@ h2 .num{color:var(--muted);font-weight:600;font-size:1rem;margin-left:.5rem}
 .flag.watch .ic,.flag.watch .lv{color:var(--watch-ink)}
 .flag.gap .ic,.flag.gap .lv{color:var(--gap-ink)}
 .flag .lv{text-transform:uppercase;letter-spacing:.05em;font-size:.8rem}
-.flag .obs{color:var(--ink)} .flag .act{color:var(--ink-2);margin-top:.5rem}
+.flag .obs{color:var(--ink);max-width:70ch} .flag .act{color:var(--ink-2);margin-top:.5rem;max-width:70ch}
 .flag .act b{color:var(--ink)}
 
 /* ---- charts ---- */
@@ -592,14 +626,14 @@ h2 .num{color:var(--muted);font-weight:600;font-size:1rem;margin-left:.5rem}
 
 /* ---- tables ---- */
 details{margin-top:.85rem}
-summary{cursor:pointer;color:var(--s-blue);font-size:.95rem;padding:.3rem 0}
-:root[data-theme="light"] summary{color:#1a5fb4}
+summary{cursor:pointer;color:var(--link);font-size:.95rem;padding:.3rem 0}
 .scroll{overflow-x:auto}
 table{width:100%;border-collapse:collapse;font-size:1rem;font-variant-numeric:tabular-nums}
 caption{text-align:left;color:var(--muted);font-size:.9rem;padding:.4rem 0}
 th{text-align:left;color:var(--ink-2);font-weight:700;padding:.55rem .7rem;
  border-bottom:2px solid var(--border);white-space:nowrap}
 td{padding:.55rem .7rem;border-bottom:1px solid var(--grid)}
+th.num,td.num{text-align:right;font-variant-numeric:tabular-nums}
 tbody tr:hover td{background:var(--surface-2)}
 .tblcard{background:var(--surface);border:1px solid var(--border);border-radius:14px;
  padding:.5rem 1rem 1rem;margin-bottom:1.25rem}
@@ -613,7 +647,7 @@ tbody tr:hover td{background:var(--surface-2)}
 .dots{letter-spacing:2px;font-size:1.1rem}
 .dots .on{color:var(--good-ink)} .dots .off{color:var(--axis)}
 .bars{display:inline-flex;align-items:center;gap:.5rem}
-.bars .track{height:12px;width:130px;background:var(--surface-2);border:1px solid var(--border);
+.bars .track{height:.7rem;width:8rem;background:var(--surface-2);border:1px solid var(--border);
  border-radius:99px;overflow:hidden} .bars .track>i{display:block;height:100%;background:var(--good)}
 .mermaid{background:var(--surface);border:1px solid var(--border);border-radius:14px;
  padding:1rem;overflow-x:auto;text-align:center}
@@ -664,7 +698,7 @@ approach <em>before</em> any help.</p>
 <h2>Your read right now</h2>
 <div class="guide"><dl>
   <dt>What</dt><dd>A plain-language summary of what the numbers below are saying today.</dd>
-  <dt>Colour</dt><dd><b class="good-ink" style="color:var(--good-ink)">▲ Good</b> = keep doing it.
+  <dt>Colour</dt><dd><b style="color:var(--good-ink)">▲ Good</b> = keep doing it.
     <b style="color:var(--watch-ink)">● Watch</b> = worth attention.
     <b style="color:var(--gap-ink)">▼ Gap</b> = the thing to fix first.</dd>
 </dl></div>
@@ -746,8 +780,9 @@ let scale = parseFloat(localStorage.getItem('lc75-scale') || '1');
 function applyScale(){ document.documentElement.style.setProperty('--scale', scale);
   localStorage.setItem('lc75-scale', scale); }
 applyScale();
-$('tminus').onclick = () => { scale = Math.max(0.85, +(scale-0.1).toFixed(2)); applyScale(); redraw(); };
-$('tplus').onclick  = () => { scale = Math.min(1.6, +(scale+0.1).toFixed(2)); applyScale(); redraw(); };
+// floor at 1 = the 18px accessible baseline; A- never goes below it, A is the reset
+$('tminus').onclick = () => { scale = Math.max(1, +(scale-0.1).toFixed(2)); applyScale(); redraw(); };
+$('tplus').onclick  = () => { scale = Math.min(1.7, +(scale+0.1).toFixed(2)); applyScale(); redraw(); };
 $('treset').onclick = () => { scale = 1; applyScale(); redraw(); };
 
 const prefLight = matchMedia('(prefers-color-scheme: light)').matches;
@@ -779,7 +814,7 @@ $('tiles').innerHTML = tiles.map(t => `<div class="tile"><div class="v">${t.v}</
       <div class="d">A rate over ${STATS.solved} problem${STATS.solved!==1?'s':''} would be noise.
       This switches on at ${STATS.minRateN} solved.</div></div>`; return; }
   const pct = Math.round(100*o.rate);
-  const lvl = pct>=60 ? 'good' : pct>=35 ? 'watch' : 'gap';
+  const lvl = pct>=60 ? 'good' : pct>=40 ? 'watch' : 'gap';
   const msg = pct>=60 ? "You're finding the efficient idea yourself. That's the interview skill."
     : "You reach working code but often need help to optimise. Closing this is the priority.";
   $('hero-opt').innerHTML = `<div class="fig ${lvl}">${pct}%</div><div class="side">
@@ -809,19 +844,19 @@ $('attention').innerHTML = att.length
 // pattern mastery
 const pm = STATS.patternMastery||[];
 $('mastery').innerHTML = pm.length
-  ? '<thead><tr><th>Pattern</th><th>Solved</th><th>Optimal-first</th><th>Recognised</th><th>Avg confidence</th></tr></thead><tbody>'
-    + pm.map(r=>`<tr><td>${r.pattern}</td><td>${r.n}</td><td>${r.optimal}%</td>
-      <td>${r.recog}%</td><td>${confDots(r.conf)}</td></tr>`).join('') + '</tbody>'
+  ? '<thead><tr><th>Pattern</th><th class="num">Solved</th><th class="num">Optimal-first</th><th class="num">Recognised</th><th>Avg confidence</th></tr></thead><tbody>'
+    + pm.map(r=>`<tr><td>${r.pattern}</td><td class="num">${r.n}</td><td class="num">${r.optimal}%</td>
+      <td class="num">${r.recog}%</td><td>${confDots(r.conf)}</td></tr>`).join('') + '</tbody>'
   : '<tbody><tr><td class="empty">No patterns logged yet.</td></tr></tbody>';
 
 // sections table
 const secs = [...new Set(PROBLEMS.map(p=>p.section))];
-$('sections').innerHTML = '<thead><tr><th>Section</th><th>Progress</th><th></th><th>Avg confidence</th></tr></thead><tbody>'
+$('sections').innerHTML = '<thead><tr><th>Section</th><th>Progress</th><th class="num">Done</th><th>Avg confidence</th></tr></thead><tbody>'
   + secs.map(s=>{ const m=PROBLEMS.filter(p=>p.section===s), d=m.filter(p=>p.solved);
     const c=d.length?d.reduce((a,p)=>a+p.confidence,0)/d.length:0;
     return `<tr><td>${secName(s)}</td>
       <td><span class="bars"><span class="track"><i style="width:${100*d.length/m.length}%"></i></span></span></td>
-      <td>${d.length}/${m.length}</td><td>${c?confDots(c):'<span class="empty">—</span>'}</td></tr>`;
+      <td class="num">${d.length}/${m.length}</td><td>${c?confDots(c):'<span class="empty">—</span>'}</td></tr>`;
   }).join('') + '</tbody>';
 
 // review queue
@@ -849,9 +884,11 @@ $('log').innerHTML = log.length
 /* ---------- charts (theme + size aware; rebuilt on any control change) ---------- */
 let charts = [];
 function fillTable(id, head, rows){
+  // first column is the label; the rest are numeric -> right-aligned tabular
+  const cls = i => i === 0 ? '' : ' class="num"';
   $(id).innerHTML = rows.length
-    ? '<thead><tr>'+head.map(h=>`<th>${h}</th>`).join('')+'</tr></thead><tbody>'
-      + rows.map(r=>'<tr>'+r.map(c=>`<td>${c}</td>`).join('')+'</tr>').join('') + '</tbody>'
+    ? '<thead><tr>'+head.map((h,i)=>`<th${cls(i)}>${h}</th>`).join('')+'</tr></thead><tbody>'
+      + rows.map(r=>'<tr>'+r.map((c,i)=>`<td${cls(i)}>${c}</td>`).join('')+'</tr>').join('') + '</tbody>'
     : '<tbody><tr><td class="empty">No data yet.</td></tr></tbody>';
 }
 function need(id, txt){ const e=$(id); if(e) e.textContent = txt; }
@@ -864,7 +901,7 @@ function draw(){
   Chart.defaults.color = ink;
   Chart.defaults.borderColor = grid;
   Chart.defaults.font.family = 'system-ui, sans-serif';
-  Chart.defaults.font.size = Math.round(14 * scale);
+  Chart.defaults.font.size = Math.round(16 * scale);  // >= body text, scales with the control
   Chart.defaults.animation = false;
   const pctScale = {min:0,max:100,ticks:{callback:v=>v+'%'},grid:{color:grid}};
   const solved = PROBLEMS.filter(p=>p.solved).sort((a,b)=>a.date.localeCompare(b.date));
@@ -939,33 +976,39 @@ function draw(){
   } else { fillTable('t-mist',['Mistake','Count'],[]); }
 }
 
-let mermaidReady=false;
-function redraw(){ draw();
-  // mermaid theme follows the toggle
-  if(mermaidReady){ /* re-render handled below on toggle */ }
-}
+// every control change (theme OR text size) rebuilds both charts and the mind map,
+// so nothing stays frozen at its initial size/colour. Charts are cheap; the mermaid
+// re-render is debounced so rapid A+/A- clicks don't overlap runs (which reject).
+let mermaidTimer = null;
+function redraw(){ draw(); clearTimeout(mermaidTimer); mermaidTimer = setTimeout(drawMermaid, 120); }
 function drawMermaid(){
-  const dark = theme==='dark';
-  document.querySelectorAll('.mermaid').forEach(el=>{ if(el.dataset.src) el.textContent=el.dataset.src; el.removeAttribute('data-processed'); });
-  mermaid.initialize({startOnLoad:false, theme: dark?'dark':'neutral',
-    themeVariables:{fontSize:'14px'}});
-  mermaid.run({querySelector:'.mermaid'}); mermaidReady=true;
+  document.querySelectorAll('.mermaid').forEach(el=>{
+    if(el.dataset.src) el.textContent=el.dataset.src; el.removeAttribute('data-processed'); });
+  mermaid.initialize({startOnLoad:false, theme: theme==='dark'?'dark':'neutral',
+    themeVariables:{fontSize: Math.round(16*scale)+'px'}});
+  try { const r = mermaid.run({querySelector:'.mermaid'}); if (r && r.catch) r.catch(()=>{}); }
+  catch(e){ /* mermaid re-render race — the previous render stays visible */ }
 }
 document.querySelectorAll('.mermaid').forEach(el=>el.dataset.src=el.textContent);
 draw();
 drawMermaid();
-// redraw mermaid on theme change too
-const _theme = $('theme').onclick;
-$('theme').onclick = () => { _theme(); drawMermaid(); };
 </script></body></html>
 """
+
+
+def _js(obj):
+    """JSON safe to inline inside a <script> block: neutralise `</script>`,
+    stray `</`, and the two line-separator chars JSON allows raw but JS forbids
+    in string literals. Without this, a pattern containing `</` blanks the page."""
+    return (json.dumps(obj).replace("</", "<\\/")
+            .replace("\u2028", "\\u2028").replace("\u2029", "\\u2029"))
 
 
 def render(problems, stats):
     return (TEMPLATE
             .replace("__MERMAID__", mermaid(problems))
-            .replace("__PROBLEMS__", json.dumps(problems))
-            .replace("__STATS__", json.dumps(stats)))
+            .replace("__PROBLEMS__", _js(problems))
+            .replace("__STATS__", _js(stats)))
 
 
 def demo():
@@ -1065,10 +1108,40 @@ def demo():
     assert any("optimal idea on your own" in f[1] for f in flags)
     assert all(len(f) == 3 and f[2] for f in flags)  # every flag has an action
 
-    # build() surfaces the eval fields onto stats and problems
+    # trend must NOT declare a direction off a thin prior window (the 11-19 solve bug):
+    # 11 solves, window 10 -> prior window is 1 sample -> must return None, not "up".
+    eleven = [mk(i, approach="brute") for i in range(1)] + \
+             [mk(1 + i, approach="optimal") for i in range(10)]
+    assert trend(eleven, lambda e: e["approach"] == "optimal", window=10) is None
+    # only once both windows have >= MIN_RATE_N does a direction appear
+    twenty = [mk(i, approach="brute") for i in range(10)] + \
+             [mk(10 + i, approach="optimal") for i in range(10)]
+    assert trend(twenty, lambda e: e["approach"] == "optimal", window=10) == "up"
+    # solve_time_trend likewise: thin prior -> no direction
+    st_thin = solve_time_trend([{**mk(i, minutes=30), "id": 11} for i in range(11)], "medium", window=10)
+    assert st_thin[2] is None, st_thin
+
+    # validate() rejects bad data with a clear message instead of crashing later
+    for bad, needle in [
+        ([{"id": 99999, "date": "2026-08-01"}], "not a LeetCode 75"),
+        ([{"id": 1768, "date": "08/01/2026"}], "not YYYY-MM-DD"),
+        ([{"id": 1768, "date": "2026-08-01"}, {"id": 1768, "date": "2026-08-02"}], "twice"),
+        ([{"id": 1768}], "missing"),
+    ]:
+        try:
+            validate(bad); assert False, f"validate accepted {bad}"
+        except ValueError as ex:
+            assert needle in str(ex), (needle, str(ex))
+
+    # build() surfaces the eval fields onto stats and problems; solved == easy+medium
     _, st2 = build([mk(i) for i in range(6)], t)
     assert st2["optimalFirst"]["n"] == 6 and st2["optimalFirst"]["rate"] == 1.0
+    assert st2["solved"] == st2["easy"] + st2["medium"] == 6
     assert isinstance(st2["diagnosis"], list) and st2["diagnosis"]
+
+    # render() neutralises </script> in user fields so the page can't be broken
+    html = render(*build([mk(0, mistakes=["</script><b>x"])], t))
+    assert "</script><b>x" not in html and "<\\/script>" in html
     print("all checks passed")
 
 
@@ -1076,8 +1149,15 @@ if __name__ == "__main__":
     if "--test" in sys.argv:
         demo()
         sys.exit(0)
-    progress = json.loads((ROOT / "progress.json").read_text())
-    problems, stats = build(progress, date.today())
+    try:
+        progress = json.loads((ROOT / "progress.json").read_text())
+    except json.JSONDecodeError as ex:
+        sys.exit(f"progress.json is not valid JSON: {ex}. "
+                 f"A trailing comma or an unquoted value is the usual cause.")
+    try:
+        problems, stats = build(progress, date.today())
+    except ValueError as ex:
+        sys.exit(f"progress.json: {ex}")
     (ROOT / "dashboard.html").write_text(render(problems, stats))
     print(f"dashboard.html — {stats['solved']}/{stats['total']} solved, "
           f"{stats['streak']} day streak, next: {stats['next']}")
