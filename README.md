@@ -9,6 +9,9 @@ being able to look at an unfamiliar problem and know which pattern it wants, and
 
 **Progress:** open [`dashboard.html`](dashboard.html) in a browser.
 
+**LC75 is month one, not the finish line** — the full arc (hards, mock interviews, system design)
+is in [`ROADMAP.md`](ROADMAP.md).
+
 ---
 
 ## The daily loop

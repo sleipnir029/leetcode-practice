@@ -13,9 +13,14 @@ Show the queue, most overdue first. Then for each problem the user wants to revi
 3. If it's shaky, they re-solve it from blank (~10 min). If it's solid, one quiz question is enough.
 4. Ask for a fresh confidence 1–5.
 
-Then log: append today's date to that entry's `reviews` array, update `confidence`, note any
-miss in `mistakes.md`, run `python3 build_dashboard.py`, and commit
-`review: <id> <slug> (confidence <n>)`.
+Then log the **outcome**, not just that a review happened. Append to that entry's `reviews` array
+an object `{"date": "<today>", "result": "pass"|"blank"}`:
+- **pass** — they recalled the approach and (if re-solved) got it right without help.
+- **blank** — they couldn't recall it, or needed the notes/a hint. Score this honestly; a blank
+  reschedules the problem for tomorrow and knocks it down a rung, which is the point.
+
+Then update `confidence`, note any miss in `mistakes.md`, run `python3 build_dashboard.py`, and
+commit `review: <id> <slug> (<pass|blank>, confidence <n>)`.
 
 Review does **not** consume the day's new problem — say so if they seem to think it does.
 

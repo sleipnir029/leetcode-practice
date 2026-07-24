@@ -104,8 +104,11 @@ Title and difficulty are **not** stored in `progress.json` — they come from `S
 ## Review sessions (`/due`)
 
 Re-solving a due problem takes ~10 min and does **not** consume the day's new problem.
-Quiz from `notes.md` without showing `solution.py`. Append today's date to that entry's
-`reviews` array and rebuild.
+Quiz from `notes.md` without showing `solution.py`. Record the **outcome** by appending
+`{"date": "<today>", "result": "pass"|"blank"}` to that entry's `reviews` array — a blank
+(couldn't recall / needed help) reschedules the problem for tomorrow and drops it a rung. This
+is what lets the dashboard measure retention and catch overconfidence, so score it straight.
+Legacy bare-date reviews are treated as passes. Then rebuild.
 
 ## Things not to add
 

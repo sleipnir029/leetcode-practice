@@ -179,6 +179,23 @@ def _diff_of(entry):
     return _SEED_DIFF.get(entry["id"], "")
 
 
+def retention_rate(progress, min_n=MIN_RATE_N):
+    """(fraction of reviews passed, total reviews), or None below min_n reviews.
+    This is the outcome the spaced-repetition schedule was flying blind on before."""
+    revs = [r for e in progress for r in e.get("reviews", [])]
+    if len(revs) < min_n:
+        return None
+    return sum(1 for r in revs if _rev_result(r) == "pass") / len(revs), len(revs)
+
+
+def overconfident(problems):
+    """Problems rated high confidence (>=4) that later BLANKED a review — the gap
+    between how sure you felt and whether it actually stuck. Systematic
+    overconfidence is dangerous: it steers you away from the reviews you most need."""
+    return [p for p in problems if p["solved"] and p["confidence"] >= 4
+            and any(_rev_result(r) == "blank" for r in p.get("reviews", []))]
+
+
 def mistake_taxonomy(solved):
     """{tag: count} across every solved entry, tags in fixed vocabulary order."""
     counts = {t: 0 for t in MISTAKE_TAGS}
@@ -201,6 +218,8 @@ def attention_score(entry, overdue):
     s += 2 if ap in ("brute", "stuck") else 1 if ap == "suboptimal" else 0
     if overdue and overdue > 0:
         s += 1
+    if any(_rev_result(r) == "blank" for r in entry.get("reviews", [])):
+        s += 2  # blanked a review -> didn't actually stick
     if not entry.get("reviews"):
         s += 1  # solved once, never revisited
     return s
@@ -209,6 +228,8 @@ def attention_score(entry, overdue):
 def attention_reason(entry):
     c = entry.get("confidence", 3)
     ap = entry.get("approach")
+    if any(_rev_result(r) == "blank" for r in entry.get("reviews", [])):
+        return "blanked a review"
     if ap in ("brute", "stuck"):
         return "only reached " + ap
     if entry.get("solo") in ("timeout", "wrong"):
@@ -232,19 +253,44 @@ def slug(title):
     return out.strip("-")
 
 
-def next_review(entry, today):
-    """Next due date, or None if the problem has graduated past the last interval.
+def _rev_date(r):
+    """A review is either a bare ISO date (legacy) or {date, result}."""
+    return r if isinstance(r, str) else r["date"]
 
-    reviews = list of dates already completed. confidence<=2 halves the interval
-    so shaky problems come back sooner.
+
+def _rev_result(r):
+    # legacy bare-date reviews are treated as passes (a review that happened, pre-outcomes)
+    return "pass" if isinstance(r, str) else r.get("result", "pass")
+
+
+def _rung(reviews):
+    """Net position on the interval ladder: a pass climbs a rung, a blank drops one
+    (floored at 0). Graduation = reaching the top rung by net passes. This is what
+    closes the retention loop — blanking a review actually sets you back."""
+    rung = 0
+    for r in reviews:
+        rung = rung + 1 if _rev_result(r) == "pass" else max(0, rung - 1)
+    return rung
+
+
+def next_review(entry, today):
+    """Next due date, or None once the problem has climbed past the last interval.
+
+    Blanking a review drops a rung (comes back sooner) and, if it's the most recent
+    review, brings the problem back the very next day for an immediate re-test.
+    confidence<=2 still halves the interval.
     """
-    done = len(entry.get("reviews", []))
-    if done >= len(INTERVALS):
+    reviews = entry.get("reviews", [])
+    rung = _rung(reviews)
+    if rung >= len(INTERVALS):
         return None
-    gap = INTERVALS[done]
-    if entry.get("confidence", 3) <= 2:
-        gap = max(1, gap // 2)
-    last = entry.get("reviews", [None])[-1] if done else entry["date"]
+    last = _rev_date(reviews[-1]) if reviews else entry["date"]
+    if reviews and _rev_result(reviews[-1]) == "blank":
+        gap = 1                      # just blanked -> retest tomorrow
+    else:
+        gap = INTERVALS[rung]
+        if entry.get("confidence", 3) <= 2:
+            gap = max(1, gap // 2)
     return date.fromisoformat(last) + timedelta(days=gap)
 
 
@@ -283,9 +329,13 @@ def validate(progress):
             raise ValueError(f"{where} (id {e['id']}): date {e['date']!r} is not YYYY-MM-DD.")
         for r in e.get("reviews", []):
             try:
-                date.fromisoformat(r)
-            except (ValueError, TypeError):
-                raise ValueError(f"{where} (id {e['id']}): review date {r!r} is not YYYY-MM-DD.")
+                date.fromisoformat(_rev_date(r))
+            except (ValueError, TypeError, KeyError):
+                raise ValueError(f"{where} (id {e['id']}): review {r!r} needs a valid date "
+                                 f"(a 'YYYY-MM-DD' string or {{\"date\":..., \"result\":\"pass|blank\"}}).")
+            if not isinstance(r, str) and r.get("result", "pass") not in ("pass", "blank"):
+                raise ValueError(f"{where} (id {e['id']}): review result {r.get('result')!r} "
+                                 f"must be 'pass' or 'blank'.")
     return progress
 
 
@@ -333,8 +383,11 @@ def build(progress, today):
     # cognition rates for the header + trend charts
     ofr = optimal_first_rate(progress)
     rec = recognition_rate(progress)
+    ret = retention_rate(progress)
     stats["optimalFirst"] = {"rate": round(ofr[0], 2), "n": ofr[1]} if ofr else None
     stats["recognition"] = {"rate": round(rec[0], 2), "n": rec[1]} if rec else None
+    stats["retention"] = {"rate": round(ret[0], 2), "n": ret[1]} if ret else None
+    stats["reviewsDone"] = sum(len(e.get("reviews", [])) for e in progress)
     stats["minRateN"] = MIN_RATE_N
     stats["diagnosis"] = diagnosis(progress, problems)
     stats["mistakes"] = mistake_taxonomy(progress)
@@ -467,6 +520,33 @@ def diagnosis(solved, problems):
             f"Could be harder sections (graphs/DP are genuinely tougher) or fatigue.",
             "If it's the harder sections, that's expected — don't read it as regression. If it's "
             "fatigue, a rest day beats a bad session."))
+
+    ret = retention_rate(solved)
+    if ret:
+        pct = round(100 * ret[0])
+        if pct >= 80:
+            flags.append((
+                "good",
+                f"Retention is holding: you passed {pct}% of your {ret[1]} reviews. The spaced "
+                f"repetition is doing its job — what you solve is actually sticking.",
+                "Keep clearing reviews on time; the schedule is calibrated to your recall."))
+        else:
+            flags.append((
+                "gap",
+                f"Retention is leaking: you passed only {pct}% of your {ret[1]} reviews — a lot of "
+                f"what you 'learned' didn't survive to the next visit. Solving isn't remembering.",
+                "Slow down the new-problem pace and clear reviews first. A blanked review now "
+                "reschedules that problem for tomorrow, so let the queue catch you up."))
+
+    over = overconfident(problems)
+    if len(over) >= 2:
+        flags.append((
+            "watch",
+            f"You've blanked a review on {len(over)} problems you'd rated confident (4-5). Your "
+            f"felt-certainty is running ahead of what actually stuck — the most dangerous kind of "
+            f"gap because it hides.",
+            "Rate confidence one notch lower than feels right for a while, and treat a fast "
+            "'yeah I know this' in a review as a reason to re-solve it, not skip it."))
 
     overdue = [p for p in problems if p["overdue"] and p["overdue"] > 0]
     if len(overdue) >= 3:
@@ -799,6 +879,7 @@ $('next').innerHTML = `Next up: <b>${STATS.next}</b>`;
 const tiles = [
   {v:`${STATS.solved}/${STATS.total}`, k:'solved', bar:100*STATS.solved/STATS.total},
   {v:STATS.recognition ? Math.round(100*STATS.recognition.rate)+'%' : '—', k:'pattern recognition'},
+  {v:STATS.retention ? Math.round(100*STATS.retention.rate)+'%' : '—', k:'review retention'},
   {v:STATS.streak, k:'day streak'},
   {v:PROBLEMS.filter(p=>p.overdue!==null).length, k:'reviews due'},
 ];
@@ -860,12 +941,18 @@ $('sections').innerHTML = '<thead><tr><th>Section</th><th>Progress</th><th class
   }).join('') + '</tbody>';
 
 // review queue
+const revResult = r => typeof r === 'string' ? 'pass' : (r && r.result || 'pass');
+const lastReview = p => (p.reviews && p.reviews.length)
+  ? (revResult(p.reviews[p.reviews.length-1])==='blank'
+      ? '<span class="late">✗ blanked</span>' : '<span style="color:var(--good-ink)">✓ passed</span>')
+  : '<span class="empty">new</span>';
 const due = PROBLEMS.filter(p=>p.overdue!==null).sort((a,b)=>b.overdue-a.overdue);
 $('queue').innerHTML = due.length
-  ? '<div class="tblcard scroll"><table><thead><tr><th>#</th><th>Problem</th><th>Pattern</th><th>Due</th><th>Notes</th></tr></thead><tbody>'
+  ? '<div class="tblcard scroll"><table><thead><tr><th>#</th><th>Problem</th><th>Pattern</th><th>Last review</th><th>Due</th><th>Notes</th></tr></thead><tbody>'
     + due.map(p=>`<tr><td>${p.id}</td>
       <td><a href="${lc(p)}" target="_blank" rel="noopener">${p.title}</a></td>
       <td><span class="pill">${p.pattern||'—'}</span></td>
+      <td>${lastReview(p)}</td>
       <td class="${p.overdue>0?'late':''}">${p.overdue>0?p.overdue+' days overdue':'today'}</td>
       <td><a href="${notes(p)}">notes</a></td></tr>`).join('') + '</tbody></table></div>'
   : '<p class="empty">Nothing due. Do the next new problem.</p>';
@@ -1030,6 +1117,21 @@ def demo():
                         "reviews": ["2026-08-02"]}, t) == date(2026, 8, 5)
     assert next_review({"date": "2026-08-01", "confidence": 1, "reviews": []}, t) == date(2026, 8, 2)
 
+    # retention loop: a blanked review drops a rung and returns the problem next day
+    assert next_review({"date": "2026-08-01", "confidence": 4,
+                        "reviews": [{"date": "2026-08-05", "result": "blank"}]}, t) == date(2026, 8, 6)
+    # pass then blank -> rung back to 0, retest tomorrow off the blank date
+    assert next_review({"date": "2026-08-01", "confidence": 4,
+                        "reviews": ["2026-08-02", {"date": "2026-08-09", "result": "blank"}]}, t) == date(2026, 8, 10)
+    # recover: pass, blank, pass -> rung 1 -> +7 off the last pass
+    assert next_review({"date": "2026-08-01", "confidence": 4,
+                        "reviews": ["2026-08-02", {"date": "2026-08-09", "result": "blank"},
+                                    {"date": "2026-08-10", "result": "pass"}]}, t) == date(2026, 8, 17)
+    # graduation needs 3 NET passes; a blank in the middle delays it (still due, not None)
+    assert next_review({"date": "2026-08-01", "confidence": 4,
+                        "reviews": [{"date": "2026-08-02", "result": "blank"}, "2026-08-03",
+                                    "2026-08-10", "2026-09-09"]}, t) is None
+
     assert streak([], t) == 0
     assert streak(["2026-08-01"], t) == 1
     assert streak(["2026-07-31"], t) == 1                      # yesterday still counts
@@ -1067,6 +1169,18 @@ def demo():
     assert r == (3 / 6, 6), r
     assert recognition_rate([mk(i, recognized="self" if i % 2 else "missed")
                              for i in range(6)])[0] == 0.5
+
+    # retention: None below MIN_RATE_N reviews; fraction passed above; legacy strings = pass
+    passd = {"date": "2026-08-05", "result": "pass"}
+    blank = {"date": "2026-08-05", "result": "blank"}
+    assert retention_rate([mk(0, reviews=[passd, blank])]) is None  # only 2 reviews
+    ret = retention_rate([mk(0, reviews=[passd, passd, "2026-08-06"]), mk(1, reviews=[blank, blank])])
+    assert ret == (3 / 5, 5), ret   # 3 passes (2 explicit + 1 legacy string) of 5 reviews
+    # overconfident: high confidence AND a blanked review
+    over = overconfident([{"solved": True, "confidence": 5, "reviews": [blank]},
+                          {"solved": True, "confidence": 5, "reviews": [passd]},
+                          {"solved": True, "confidence": 2, "reviews": [blank]}])
+    assert len(over) == 1, over
 
     # trend: needs two full-ish windows; None with one
     small = [mk(i) for i in range(6)]
