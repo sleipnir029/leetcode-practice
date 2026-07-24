@@ -93,7 +93,7 @@ SEED = [
 assert len(SEED) == 75, f"seed list has {len(SEED)} problems, expected 75"
 assert len({p[0] for p in SEED}) == 75, "duplicate problem id in seed list"
 
-INTERVALS = [1, 7, 30]  # days after solve date
+INTERVALS = [1, 7, 30, 90]  # gap in days from the PREVIOUS review (not from the solve date)
 
 # --- evaluation layer ---
 # Guards so the dashboard doesn't lie at small n. At 1 problem/day a "rate" over
@@ -199,11 +199,23 @@ def retention_rate(progress, min_n=MIN_RATE_N):
 
 
 def overconfident(problems):
-    """Problems rated high confidence (>=4) that later BLANKED a review — the gap
-    between how sure you felt and whether it actually stuck. Systematic
-    overconfidence is dangerous: it steers you away from the reviews you most need."""
-    return [p for p in problems if p["solved"] and p["confidence"] >= 4
-            and any(_rev_result(r) == "blank" for r in p.get("reviews", []))]
+    """Problems where you felt confident (>=4) going INTO a review, then blanked it —
+    the gap between felt-certainty and what stuck. Reads `confidenceWas` snapshotted on
+    the review, because the debrief lowers `confidence` after a blank — checking the
+    current (already-lowered) confidence would erase the very event we want to catch.
+    Falls back to current confidence only for legacy reviews with no snapshot."""
+    out = []
+    for p in problems:
+        if not p["solved"]:
+            continue
+        for r in p.get("reviews", []):
+            if _rev_result(r) != "blank":
+                continue
+            was = r.get("confidenceWas") if not isinstance(r, str) else None
+            if (was if was is not None else p["confidence"]) >= 4:
+                out.append(p)
+                break
+    return out
 
 
 def mistake_taxonomy(solved):
@@ -274,20 +286,20 @@ def _rev_result(r):
 
 
 def _rung(reviews):
-    """Net position on the interval ladder: a pass climbs a rung, a blank drops one
-    (floored at 0). Graduation = reaching the top rung by net passes. This is what
-    closes the retention loop — blanking a review actually sets you back."""
+    """Leitner box: a pass climbs a rung, a BLANK resets to box 1 (rung 0). A lapse
+    means the memory is weak *now* regardless of history, so the problem must re-earn
+    the long intervals rather than snapping back to a banked one. Graduation =
+    len(INTERVALS) consecutive passes."""
     rung = 0
     for r in reviews:
-        rung = rung + 1 if _rev_result(r) == "pass" else max(0, rung - 1)
+        rung = rung + 1 if _rev_result(r) == "pass" else 0
     return rung
 
 
 def next_review(entry, today):
-    """Next due date, or None once the problem has climbed past the last interval.
-
-    Blanking a review drops a rung (comes back sooner) and, if it's the most recent
-    review, brings the problem back the very next day for an immediate re-test.
+    """Next due date, or None once the problem has climbed past the last interval by a
+    clean run of passes. A blank resets to box 1, so the next gap is INTERVALS[0] = 1
+    day (retest tomorrow) and the 7/30/90-day intervals have to be re-earned.
     confidence<=2 still halves the interval.
     """
     reviews = entry.get("reviews", [])
@@ -295,12 +307,9 @@ def next_review(entry, today):
     if rung >= len(INTERVALS):
         return None
     last = _rev_date(reviews[-1]) if reviews else entry["date"]
-    if reviews and _rev_result(reviews[-1]) == "blank":
-        gap = 1                      # just blanked -> retest tomorrow
-    else:
-        gap = INTERVALS[rung]
-        if entry.get("confidence", 3) <= 2:
-            gap = max(1, gap // 2)
+    gap = INTERVALS[rung]
+    if entry.get("confidence", 3) <= 2:
+        gap = max(1, gap // 2)
     return date.fromisoformat(last) + timedelta(days=gap)
 
 
@@ -337,15 +346,26 @@ def validate(progress):
             date.fromisoformat(e["date"])
         except (ValueError, TypeError):
             raise ValueError(f"{where} (id {e['id']}): date {e['date']!r} is not YYYY-MM-DD.")
+        # approach must be scored on every solved entry — unlike recognition it's always
+        # judgeable from the code, so a missing value is a logging error, not "unknown".
+        # (Without this, a missing approach silently counts as a non-optimal miss.)
+        if e.get("approach") not in ("optimal", "suboptimal", "brute", "stuck"):
+            raise ValueError(f"{where} (id {e['id']}): approach {e.get('approach')!r} must be "
+                             f"one of optimal / suboptimal / brute / stuck.")
         for r in e.get("reviews", []):
             try:
                 date.fromisoformat(_rev_date(r))
             except (ValueError, TypeError, KeyError):
                 raise ValueError(f"{where} (id {e['id']}): review {r!r} needs a valid date "
                                  f"(a 'YYYY-MM-DD' string or {{\"date\":..., \"result\":\"pass|blank\"}}).")
-            if not isinstance(r, str) and r.get("result", "pass") not in ("pass", "blank"):
-                raise ValueError(f"{where} (id {e['id']}): review result {r.get('result')!r} "
-                                 f"must be 'pass' or 'blank'.")
+            if not isinstance(r, str):
+                if r.get("result", "pass") not in ("pass", "blank"):
+                    raise ValueError(f"{where} (id {e['id']}): review result {r.get('result')!r} "
+                                     f"must be 'pass' or 'blank'.")
+                cw = r.get("confidenceWas")
+                if cw is not None and not (isinstance(cw, int) and 1 <= cw <= 5):
+                    raise ValueError(f"{where} (id {e['id']}): review confidenceWas {cw!r} "
+                                     f"must be an integer 1-5.")
     return progress
 
 
@@ -397,7 +417,6 @@ def build(progress, today):
     stats["optimalFirst"] = {"rate": round(ofr[0], 2), "n": ofr[1]} if ofr else None
     stats["recognition"] = {"rate": round(rec[0], 2), "n": rec[1]} if rec else None
     stats["retention"] = {"rate": round(ret[0], 2), "n": ret[1]} if ret else None
-    stats["reviewsDone"] = sum(len(e.get("reviews", [])) for e in progress)
     stats["minRateN"] = MIN_RATE_N
     stats["diagnosis"] = diagnosis(progress, problems)
     stats["mistakes"] = mistake_taxonomy(progress)
@@ -523,8 +542,8 @@ def diagnosis(solved, problems):
             f"planned BEFORE coding — and only {have} of your {len(solved)} solves have one. I can't "
             f"read your pre-code thinking from the finished code, so I won't guess it.",
             "Jot a 2-line think-note while you solve on LeetCode (restate + the pattern you reached "
-            "for before coding + did you peek at any hint), and paste it at /debrief. That's the only "
-            "thing that unlocks the single most transferable interview metric."))
+            "for before coding + did you peek at any hint), and paste it at /debrief. It's what "
+            "unlocks recognition tracking — a strong signal for how well problems will transfer."))
 
     tax = mistake_taxonomy(solved)
     if tax:
@@ -1145,9 +1164,12 @@ def demo():
     # third = last review + 30
     assert next_review({"date": "2026-08-01", "confidence": 4,
                         "reviews": ["2026-08-02", "2026-08-09"]}, t) == date(2026, 9, 8)
-    # graduated after 3 reviews
+    # fourth = last review + 90 (the new long tier)
     assert next_review({"date": "2026-08-01", "confidence": 4,
-                        "reviews": ["a", "b", "c"]}, t) is None
+                        "reviews": ["2026-08-02", "2026-08-09", "2026-09-08"]}, t) == date(2026, 12, 7)
+    # graduated only after len(INTERVALS)=4 consecutive passes
+    assert next_review({"date": "2026-08-01", "confidence": 4,
+                        "reviews": ["a", "b", "c", "d"]}, t) is None
     # low confidence halves the gap (7 -> 3), and never goes below 1
     assert next_review({"date": "2026-08-01", "confidence": 2,
                         "reviews": ["2026-08-02"]}, t) == date(2026, 8, 5)
@@ -1159,14 +1181,15 @@ def demo():
     # pass then blank -> rung back to 0, retest tomorrow off the blank date
     assert next_review({"date": "2026-08-01", "confidence": 4,
                         "reviews": ["2026-08-02", {"date": "2026-08-09", "result": "blank"}]}, t) == date(2026, 8, 10)
-    # recover: pass, blank, pass -> rung 1 -> +7 off the last pass
+    # recover: pass, blank, pass -> blank RESETS to box 1, so this is rung 1 -> +7 off the last pass
     assert next_review({"date": "2026-08-01", "confidence": 4,
                         "reviews": ["2026-08-02", {"date": "2026-08-09", "result": "blank"},
                                     {"date": "2026-08-10", "result": "pass"}]}, t) == date(2026, 8, 17)
-    # graduation needs 3 NET passes; a blank in the middle delays it (still due, not None)
+    # a blank makes the long interval re-earned: 3 passes AFTER a blank -> rung 3 -> still due (90d),
+    # NOT graduated, because graduation needs 4 CONSECUTIVE passes
     assert next_review({"date": "2026-08-01", "confidence": 4,
                         "reviews": [{"date": "2026-08-02", "result": "blank"}, "2026-08-03",
-                                    "2026-08-10", "2026-09-09"]}, t) is None
+                                    "2026-08-10", "2026-09-09"]}, t) == date(2026, 12, 8)
 
     assert streak([], t) == 0
     assert streak(["2026-08-01"], t) == 1
@@ -1184,7 +1207,7 @@ def demo():
     probs, st = build([], t)
     assert st["solved"] == 0 and st["next"].startswith("1768.")
     probs, st = build([{"id": 1768, "date": "2026-08-01", "confidence": 3,
-                        "pattern": "two-index-interleave", "minutes": 20,
+                        "pattern": "two-index-interleave", "minutes": 20, "approach": "optimal",
                         "solo": "solved", "reviews": []}], t)
     assert st["solved"] == 1 and st["easy"] == 1 and st["next"].startswith("1071.")
     assert [p for p in probs if p["id"] == 1768][0]["due"] == "2026-08-02"
@@ -1222,11 +1245,15 @@ def demo():
     assert retention_rate([mk(0, reviews=[passd, blank])]) is None  # only 2 reviews
     ret = retention_rate([mk(0, reviews=[passd, passd, "2026-08-06"]), mk(1, reviews=[blank, blank])])
     assert ret == (3 / 5, 5), ret   # 3 passes (2 explicit + 1 legacy string) of 5 reviews
-    # overconfident: high confidence AND a blanked review
-    over = overconfident([{"solved": True, "confidence": 5, "reviews": [blank]},
-                          {"solved": True, "confidence": 5, "reviews": [passd]},
-                          {"solved": True, "confidence": 2, "reviews": [blank]}])
-    assert len(over) == 1, over
+    # overconfident: reads confidenceWas snapshot, NOT current confidence. The key case is
+    # "felt sure (5), blanked, confidence then dropped to 2" — must still flag.
+    blank_was5 = {"date": "2026-08-05", "result": "blank", "confidenceWas": 5}
+    over = overconfident([
+        {"solved": True, "confidence": 2, "reviews": [blank_was5]},   # dropped after -> still flags
+        {"solved": True, "confidence": 5, "reviews": [passd]},        # confident but passed -> no
+        {"solved": True, "confidence": 2, "reviews": [blank]},        # blanked but wasn't confident -> no
+        {"solved": True, "confidence": 5, "reviews": [blank]}])       # legacy (no snapshot) falls back -> flags
+    assert len(over) == 2, over
 
     # trend: needs two full-ish windows; None with one
     small = [mk(i) for i in range(6)]
@@ -1282,11 +1309,15 @@ def demo():
     assert st_thin[2] is None, st_thin
 
     # validate() rejects bad data with a clear message instead of crashing later
+    ok = {"approach": "optimal"}  # valid approach so other checks are the ones that fire
     for bad, needle in [
-        ([{"id": 99999, "date": "2026-08-01"}], "not a LeetCode 75"),
-        ([{"id": 1768, "date": "08/01/2026"}], "not YYYY-MM-DD"),
-        ([{"id": 1768, "date": "2026-08-01"}, {"id": 1768, "date": "2026-08-02"}], "twice"),
+        ([{"id": 99999, "date": "2026-08-01", **ok}], "not a LeetCode 75"),
+        ([{"id": 1768, "date": "08/01/2026", **ok}], "not YYYY-MM-DD"),
+        ([{"id": 1768, "date": "2026-08-01", **ok}, {"id": 1768, "date": "2026-08-02", **ok}], "twice"),
         ([{"id": 1768}], "missing"),
+        ([{"id": 1768, "date": "2026-08-01"}], "approach"),                       # missing approach
+        ([{"id": 1768, "date": "2026-08-01", "approach": "optimal",
+           "reviews": [{"date": "2026-08-02", "result": "blank", "confidenceWas": 9}]}], "confidenceWas"),
     ]:
         try:
             validate(bad); assert False, f"validate accepted {bad}"
@@ -1298,6 +1329,17 @@ def demo():
     assert st2["optimalFirst"]["n"] == 6 and st2["optimalFirst"]["rate"] == 1.0
     assert st2["solved"] == st2["easy"] + st2["medium"] == 6
     assert isinstance(st2["diagnosis"], list) and st2["diagnosis"]
+
+    # diagnosis integration: overconfidence + overdue flags actually fire (not just problems=[])
+    oc = [mk(i, conf=5, reviews=[blank_was5]) for i in range(6)]  # blanked while confident, long ago
+    probs3, _ = build(oc, date(2027, 1, 1))                        # -> overdue + overconfident
+    flags3 = diagnosis(oc, probs3)
+    assert any("blanked a review on" in f[1] for f in flags3)      # overconfidence flag
+    assert any("overdue" in f[1] for f in flags3)                  # overdue flag
+    # pattern_mastery: unknown-recognition pattern shows recog None, not 0
+    pm3 = pattern_mastery([{"solved": True, "pattern": "u", "confidence": 3,
+                            "recognized": "unknown", "approach": "brute"}])
+    assert pm3[0]["recog"] is None
 
     # render() neutralises </script> in user fields so the page can't be broken
     html = render(*build([mk(0, mistakes=["</script><b>x"])], t))

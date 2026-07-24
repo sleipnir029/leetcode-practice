@@ -15,6 +15,12 @@ flatter you later. It's for you. Be honest and it measures something; fudge it a
 
 `──────── ✂ started coding at __:__ — everything above is frozen from here ────────`
 
+<!-- Optional, for a tamper-proof freeze: before you write any code, save this file and run
+     `git add -A && git commit -m "think-log <id>"`. The commit timestamp then proves the top
+     half existed before your solution did — turns the honor-system freeze into a real anchor.
+     Skip it if it's friction; the pre-registration works on trust either way. -->
+
+
 ## ⬇ DURING & AFTER
 
 - **Did I look at anything?**  none / LeetCode hint #_ / editorial / searched "____"

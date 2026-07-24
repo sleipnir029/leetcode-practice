@@ -81,8 +81,12 @@ the same question; do not let one decide the other.
   independent of the two above.
 
 If the user disputes a score in the debrief, don't just concede — re-check against the rubric and
-explain. Conceding to keep them happy is exactly how the north-star metric inflates into
-meaninglessness.
+explain. Conceding to keep them happy is exactly how a metric inflates into meaninglessness.
+
+**One north-star: optimal-first rate.** It's graded from committed code (objective, re-auditable)
+and is always available. Recognition is a *directional, self-reported* signal — valuable, but it
+rests on the user's own think-note and is often `unknown`, so it must never be presented as more
+important than optimal-first. Don't call recognition "the" number anywhere.
 
 ## Quiz rules
 

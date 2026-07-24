@@ -14,10 +14,13 @@ Show the queue, most overdue first. Then for each problem the user wants to revi
 4. Ask for a fresh confidence 1–5.
 
 Then log the **outcome**, not just that a review happened. Append to that entry's `reviews` array
-an object `{"date": "<today>", "result": "pass"|"blank"}`:
+an object `{"date": "<today>", "result": "pass"|"blank", "confidenceWas": <their confidence going
+INTO this review, 1-5>}`:
 - **pass** — they recalled the approach and (if re-solved) got it right without help.
 - **blank** — they couldn't recall it, or needed the notes/a hint. Score this honestly; a blank
-  reschedules the problem for tomorrow and knocks it down a rung, which is the point.
+  resets the problem to box 1 (retest tomorrow, and the 7/30/90-day intervals must be re-earned).
+- **`confidenceWas`** — snapshot their confidence *before* this review, so overconfidence stays
+  visible even after you lower their confidence below. Don't skip it on blanks especially.
 
 Then update `confidence`, note any miss in `mistakes.md`, run `python3 build_dashboard.py`, and
 commit `review: <id> <slug> (<pass|blank>, confidence <n>)`.
