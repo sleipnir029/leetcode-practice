@@ -655,7 +655,7 @@ TEMPLATE = """<!doctype html>
   --scale:1;
   --page:#0d0d0d; --surface:#1a1a19; --surface-2:#232320;
   --ink:#ffffff; --ink-2:#e6e5dd; --muted:#a9a89f;
-  --grid:#2c2c2a; --axis:#3a3a37; --border:rgba(255,255,255,.14);
+  --grid:#2c2c2a; --axis:#3a3a37; --border:rgba(255,255,255,.14); --dot-off:#8a887e;
   --good:#22c55e; --watch:#fab219; --gap:#f16b6b;
   --s-blue:#3987e5; --s-aqua:#1baf7a; --s-violet:#9085e9; --s-gray:#3a3a37;
   --good-ink:#4ade80; --watch-ink:#fbbf24; --gap-ink:#f87171;
@@ -664,7 +664,7 @@ TEMPLATE = """<!doctype html>
 :root[data-theme="light"]{
   --page:#f4f3ef; --surface:#ffffff; --surface-2:#f7f6f2;
   --ink:#0b0b0b; --ink-2:#2b2b28; --muted:#5c5b56;
-  --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,.16);
+  --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,.16); --dot-off:#8f8e84;
   --good:#0a8f0a; --watch:#b47600; --gap:#c62f2f;
   --s-blue:#256abf; --s-aqua:#0f8a5f; --s-violet:#4a3aa7; --s-gray:#c3c2b7;
   --good-ink:#0a7a0a; --watch-ink:#8a5a00; --gap-ink:#b02525;
@@ -715,7 +715,7 @@ h2 .num{color:var(--muted);font-weight:600;font-size:1rem;margin-left:.5rem}
 .hero .side{flex:1;min-width:16ch;max-width:60ch}
 .hero .side .t{font-size:1.15rem;font-weight:600;margin-bottom:.2rem}
 .hero .side .d{color:var(--ink-2)}
-.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.9rem;
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,10rem),1fr));gap:.9rem;
  margin-bottom:1.25rem}
 .tile{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:1.1rem 1.2rem;
  display:flex;flex-direction:column}
@@ -753,6 +753,7 @@ h2 .num{color:var(--muted);font-weight:600;font-size:1rem;margin-left:.5rem}
 .chart-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
  color:var(--muted);font-size:1.05rem;text-align:center;padding:1rem}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:1.25rem}
+.grid2>*{min-width:0}  /* let chart cells shrink below the canvas's 300px, killing phone overflow */
 @media(max-width:720px){.grid2{grid-template-columns:1fr}}
 
 /* ---- tables ---- */
@@ -776,7 +777,7 @@ tbody tr:hover td{background:var(--surface-2)}
 .empty{color:var(--muted);padding:.75rem 0}
 .reason{color:var(--ink-2)}
 .dots{letter-spacing:2px;font-size:1.1rem}
-.dots .on{color:var(--good-ink)} .dots .off{color:var(--axis)}
+.dots .on{color:var(--good-ink)} .dots .off{color:var(--dot-off)}
 .bars{display:inline-flex;align-items:center;gap:.5rem}
 .bars .track{height:.7rem;width:8rem;background:var(--surface-2);border:1px solid var(--border);
  border-radius:99px;overflow:hidden} .bars .track>i{display:block;height:100%;background:var(--good)}
@@ -919,7 +920,7 @@ $('treset').onclick = () => { scale = 1; applyScale(); redraw(); };
 const prefLight = matchMedia('(prefers-color-scheme: light)').matches;
 let theme = localStorage.getItem('lc75-theme') || (prefLight ? 'light' : 'dark');
 function applyTheme(){ document.documentElement.setAttribute('data-theme', theme);
-  const b = $('theme'); b.textContent = theme === 'dark' ? 'Dark' : 'Light';
+  const b = $('theme'); b.textContent = theme === 'dark' ? 'Switch to light' : 'Switch to dark';
   b.setAttribute('aria-pressed', theme === 'light'); localStorage.setItem('lc75-theme', theme); }
 applyTheme();
 $('theme').onclick = () => { theme = theme === 'dark' ? 'light' : 'dark'; applyTheme(); redraw(); };
