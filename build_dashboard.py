@@ -102,6 +102,10 @@ MIN_RATE_N = 5
 WINDOW = 10
 MISTAKE_TAGS = ["off-by-one", "edge-empty", "wrong-complexity", "wrong-ds",
                 "premature-code", "logic", "syntax"]
+# recognition can only be judged from the user's think-note (what they planned BEFORE
+# coding). Without a note it's "unknown" — honestly excluded from the rate, never guessed
+# from the finished code, which shows the result, not the thought.
+KNOWN_RECOG = ("self", "hinted", "missed")
 
 
 def _chron(progress):
@@ -122,8 +126,14 @@ def optimal_first_rate(solved, window=WINDOW):
     return rate(solved, lambda e: e.get("approach") == "optimal", window)
 
 
+def _recognized_known(solved):
+    """Only problems where a think-note let me actually score recognition. No note ->
+    'unknown' -> not counted, so the rate reflects real evidence, not inference."""
+    return [e for e in solved if e.get("recognized") in KNOWN_RECOG]
+
+
 def recognition_rate(solved, window=WINDOW):
-    return rate(solved, lambda e: e.get("recognized") == "self", window)
+    return rate(_recognized_known(solved), lambda e: e.get("recognized") == "self", window)
 
 
 def trend(solved, pred, window=WINDOW):
@@ -396,19 +406,28 @@ def build(progress, today):
     return problems, stats
 
 
-def cognition_series(solved, window=WINDOW):
-    """Per-solve rolling rates, so the trend charts have a line to draw.
-    Point i = rate over the window ending at solve i. Empty below MIN_RATE_N."""
-    chron = _chron(solved)
+def _roll(chron, pred, window):
+    """Rolling rate line with its own date labels. Recognition and optimal-first have
+    different denominators (recognition excludes note-less solves), so each gets its
+    own labels rather than sharing one x-axis."""
     if len(chron) < MIN_RATE_N:
-        return {"labels": [], "optimal": [], "recognition": []}
-    labels, opt, rec = [], [], []
+        return [], []
+    labels, vals = [], []
     for i in range(MIN_RATE_N, len(chron) + 1):
         win = chron[max(0, i - window):i]
         labels.append(chron[i - 1]["date"])
-        opt.append(round(100 * sum(1 for e in win if e.get("approach") == "optimal") / len(win)))
-        rec.append(round(100 * sum(1 for e in win if e.get("recognized") == "self") / len(win)))
-    return {"labels": labels, "optimal": opt, "recognition": rec}
+        vals.append(round(100 * sum(1 for e in win if pred(e)) / len(win)))
+    return labels, vals
+
+
+def cognition_series(solved, window=WINDOW):
+    """Two independent rolling-rate lines for the trend charts. Recognition is computed
+    only over solves that carry a think-note (KNOWN_RECOG), so it never counts an
+    unscored problem as a recognition failure."""
+    chron = _chron(solved)
+    ol, ov = _roll(chron, lambda e: e.get("approach") == "optimal", window)
+    rl, rv = _roll(_recognized_known(chron), lambda e: e.get("recognized") == "self", window)
+    return {"optLabels": ol, "optimal": ov, "recLabels": rl, "recognition": rv}
 
 
 def pattern_mastery(problems):
@@ -422,10 +441,12 @@ def pattern_mastery(problems):
     rows = []
     for pat, ps in out.items():
         n = len(ps)
+        known = [p for p in ps if p["recognized"] in KNOWN_RECOG]  # recog only where scored
         rows.append({
             "pattern": pat, "n": n,
             "conf": round(sum(p["confidence"] for p in ps) / n, 1),
-            "recog": round(100 * sum(1 for p in ps if p["recognized"] == "self") / n),
+            "recog": round(100 * sum(1 for p in known if p["recognized"] == "self") / len(known))
+                     if known else None,
             "optimal": round(100 * sum(1 for p in ps if p["approach"] == "optimal") / n),
         })
     rows.sort(key=lambda r: (r["optimal"], r["conf"]))
@@ -477,22 +498,33 @@ def diagnosis(solved, problems):
     rec = recognition_rate(solved)
     if rec:
         pct = round(100 * rec[0])
-        t = trend(solved, lambda e: e.get("recognized") == "self")
+        t = trend(_recognized_known(solved), lambda e: e.get("recognized") == "self")
         arrow = {"up": ", trending up", "down": ", trending down", "flat": ""}.get(t, "")
         if pct >= 60:
             flags.append((
                 "good",
-                f"You name the right pattern before coding {pct}% of the time{arrow}. Recognition is "
-                f"the thing that makes an unseen problem feel familiar.",
+                f"You name the right pattern before coding {pct}% of the time{arrow} (of the {rec[1]} "
+                f"where you logged a think-note). Recognition is what makes an unseen problem feel "
+                f"familiar.",
                 "Keep reading the Trigger line in patterns.md before each session — it's paying off."))
         else:
             flags.append((
                 "watch",
-                f"You spot the pattern before coding {pct}% of the time{arrow} — more often you find "
-                f"it only after the hint. Recognition is what turns a scary unseen problem into a "
-                f"familiar one.",
+                f"You spot the pattern before coding {pct}% of the time{arrow} (of the {rec[1]} where "
+                f"you logged a think-note) — more often you find it only after the hint.",
                 "Before each session, spend 60 seconds re-reading the Trigger column in patterns.md. "
                 "You're training the 'this smells like a two-pointer problem' reflex."))
+    elif len(_recognized_known(solved)) < MIN_RATE_N and len(solved) >= MIN_RATE_N:
+        # enough solves, but not enough think-notes to judge recognition honestly
+        have = len(_recognized_known(solved))
+        flags.append((
+            "watch",
+            f"Recognition tracking is off because I can only score it from your think-note — what you "
+            f"planned BEFORE coding — and only {have} of your {len(solved)} solves have one. I can't "
+            f"read your pre-code thinking from the finished code, so I won't guess it.",
+            "Jot a 2-line think-note while you solve on LeetCode (restate + the pattern you reached "
+            "for before coding + did you peek at any hint), and paste it at /debrief. That's the only "
+            "thing that unlocks the single most transferable interview metric."))
 
     tax = mistake_taxonomy(solved)
     if tax:
@@ -927,7 +959,7 @@ const pm = STATS.patternMastery||[];
 $('mastery').innerHTML = pm.length
   ? '<thead><tr><th>Pattern</th><th class="num">Solved</th><th class="num">Optimal-first</th><th class="num">Recognised</th><th>Avg confidence</th></tr></thead><tbody>'
     + pm.map(r=>`<tr><td>${r.pattern}</td><td class="num">${r.n}</td><td class="num">${r.optimal}%</td>
-      <td class="num">${r.recog}%</td><td>${confDots(r.conf)}</td></tr>`).join('') + '</tbody>'
+      <td class="num">${r.recog==null?'—':r.recog+'%'}</td><td>${confDots(r.conf)}</td></tr>`).join('') + '</tbody>'
   : '<tbody><tr><td class="empty">No patterns logged yet.</td></tr></tbody>';
 
 // sections table
@@ -1033,24 +1065,28 @@ function draw(){
         plugins:{legend:{position:'top',labels:{boxWidth:14,padding:14}}}}}));
   }
 
-  // cognition trend lines
-  const cs = STATS.cognitionSeries||{labels:[]};
-  function trendLine(cid,eid,tid,series,colour,label){
+  // cognition trend lines — each series carries its own labels (recognition excludes
+  // note-less solves, so its x-axis differs from optimal-first's)
+  const cs = STATS.cognitionSeries||{};
+  function trendLine(cid,eid,tid,labels,series,colour,label,emptyMsg){
     const gap2 = STATS.minRateN - STATS.solved;
     if(!series||!series.length){
-      need(eid, gap2>0 ? `Needs ${gap2} more solve${gap2!==1?'s':''} before this means anything.`
-        : 'Not enough data yet.');
+      need(eid, emptyMsg || (gap2>0 ? `Needs ${gap2} more solve${gap2!==1?'s':''} before this means anything.`
+        : 'Not enough data yet.'));
       fillTable(tid,['Date',label],[]); return; }
     $(eid).style.display='none';
     charts.push(new Chart($(cid),{type:'line',
-      data:{labels:cs.labels,datasets:[{data:series,borderColor:colour,backgroundColor:colour+'22',
+      data:{labels:labels,datasets:[{data:series,borderColor:colour,backgroundColor:colour+'22',
         fill:true,tension:.3,pointRadius:3,borderWidth:2}]},
       options:{maintainAspectRatio:false,plugins:{legend:{display:false}},
         scales:{y:pctScale,x:{grid:{color:grid}}}}}));
-    fillTable(tid,['Date',label],cs.labels.map((d,i)=>[d,series[i]+'%']));
+    fillTable(tid,['Date',label],labels.map((d,i)=>[d,series[i]+'%']));
   }
-  trendLine('c-opt','e-opt','t-opt',cs.optimal,cssv('--good'),'Optimal-first');
-  trendLine('c-rec','e-rec','t-rec',cs.recognition,violet,'Recognised');
+  trendLine('c-opt','e-opt','t-opt',cs.optLabels,cs.optimal,cssv('--good'),'Optimal-first');
+  trendLine('c-rec','e-rec','t-rec',cs.recLabels,cs.recognition,violet,'Recognised',
+    (cs.recognition && cs.recognition.length===0 && STATS.solved>=STATS.minRateN)
+      ? 'Log think-notes (your pre-code plan) to track this — I can\\'t read it from finished code.'
+      : null);
 
   // mistakes
   const mist=STATS.mistakes||{}, mk=Object.keys(mist);
@@ -1169,6 +1205,16 @@ def demo():
     assert r == (3 / 6, 6), r
     assert recognition_rate([mk(i, recognized="self" if i % 2 else "missed")
                              for i in range(6)])[0] == 0.5
+    # recognition can only be scored from a think-note: 'unknown' is excluded, never guessed
+    mixed = [mk(i, recognized="self") for i in range(4)] + \
+            [mk(4 + i, recognized="unknown") for i in range(6)]
+    assert recognition_rate(mixed) is None            # only 4 note-backed -> below MIN_RATE_N
+    mixed2 = [mk(i, recognized="self") for i in range(3)] + \
+             [mk(3 + i, recognized="missed") for i in range(3)] + \
+             [mk(6 + i, recognized="unknown") for i in range(4)]
+    assert recognition_rate(mixed2) == (0.5, 6)       # 3 self of 6 scored; 4 unknown ignored
+    cs = cognition_series(mixed2)
+    assert cs["recLabels"] and len(cs["recognition"]) == len(cs["recLabels"])
 
     # retention: None below MIN_RATE_N reviews; fraction passed above; legacy strings = pass
     passd = {"date": "2026-08-05", "result": "pass"}

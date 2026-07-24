@@ -5,6 +5,13 @@ description: Post-mortem a problem you just attempted — 7-step debrief, quiz, 
 The user has finished their timer on problem **$ARGUMENTS** and is bringing their attempt.
 Their code follows, or is already in the working tree.
 
+**First, ask for their think-note** if they didn't paste one — the 2–3 lines they jotted while
+solving on LeetCode (restatement, the pattern they reached for *before* coding, whether they
+looked at any hint/editorial). This is the ONLY valid source for the `recognized` score; I can't
+read pre-code thinking from finished code. If they have no note this time, that's fine — score
+`recognized: unknown` (not a guess), mention it's left out of the recognition rate, and remind
+them the think-note is what unlocks that metric. Don't nag beyond one line.
+
 Run the debrief protocol in `CLAUDE.md`. All 7 steps, in order, no skipping:
 
 1. Read back — they explain their own code, step by step.

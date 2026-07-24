@@ -68,9 +68,18 @@ problem; do a few in the weeks before interviews.
 Beyond counts, the dashboard evaluates *how you think*, not just *what you finished*. Three fields
 recorded honestly during each debrief drive it:
 
-- **approach** — where your *solo* attempt landed before help: `optimal / suboptimal / brute / stuck`
-- **recognized** — did you name the pattern before coding: `self / hinted / missed`
+- **approach** — how optimal the code you brought is: `optimal / suboptimal / brute / stuck`
+  (judged from your code — the finished solution is enough to score this)
+- **recognized** — did you name the pattern *before* coding: `self / hinted / missed`. This one
+  can **only** come from your **think-note** — the 2–3 lines you jot on LeetCode while solving
+  (what pattern you reached for before coding, whether you peeked at a hint). No note → scored
+  `unknown` and left out of the rate, never guessed from your code. See `templates/notes.md`.
 - **mistakes** — tagged from a fixed list, so recurring bugs become countable
+
+> **Why the think-note matters:** you solve on LeetCode, not with me, so your code is all I see —
+> and code shows the *result*, not what you were thinking at minute 3. The think-note is the only
+> honest way to measure whether you *recognised* the pattern, which is the most transferable
+> interview skill. Two lines is enough; paste it at `/debrief`.
 
 From those it computes the signals that actually matter for interviews:
 

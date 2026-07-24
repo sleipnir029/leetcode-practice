@@ -48,10 +48,18 @@ These two fields measure **different axes** and must be scored **independently**
 the same question; do not let one decide the other.
 
 - **`recognized`** — did they identify the right pattern/approach in the *think-phase, before
-  coding*?
-  - `self` — named the correct pattern/approach unprompted, before writing code.
-  - `hinted` — got there only after I nudged, or after a clarifying exchange, or mid-coding.
-  - `missed` — never identified it; reached a solution by brute reasoning or not at all.
+  coding*? **Score this ONLY from the user's think-note** (the "Before coding I reached for"
+  line in `notes.md`, or whatever they paste at debrief). The user solves alone on LeetCode — I
+  see only their final code and the problem, and code shows the *result*, not the thought at
+  minute 3. I cannot read recognition backward from a finished solution, and must not try.
+  - `self` — their note shows they named the correct pattern/approach unprompted, before coding.
+  - `hinted` — their note shows they got there only after a LeetCode hint, editorial, a search,
+    or mid-coding.
+  - `missed` — their note shows they never identified it.
+  - `unknown` — **no think-note provided.** Record this, don't guess. It's excluded from the
+    recognition rate (honest blank), and I should ask them to log a think-note next time.
+  Also: the note's "Did I look at anything?" line governs `solo` and `approach` honesty — if they
+  used a hint/editorial, it is not a clean solo solve, regardless of how good the final code is.
 - **`approach`** — the quality of the solution they actually produced **solo**, regardless of how
   they found it:
   - `optimal` — reached the best-known time AND space with no prompting.
