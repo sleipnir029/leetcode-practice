@@ -208,6 +208,7 @@ TEMPLATE = """<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>LeetCode 75 — progress</title>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <style>
 :root{color-scheme:dark}
 body{margin:0;padding:2rem;background:#0b0f19;color:#e5e7eb;
@@ -245,6 +246,15 @@ a{color:#60a5fa;text-decoration:none}a:hover{text-decoration:underline}
 .dots{letter-spacing:2px;color:#4b5563}
 .mermaid{background:#0d1220;border:1px solid #1f2937;border-radius:10px;padding:1rem;
  overflow-x:auto;text-align:center}
+.charts{display:grid;grid-template-columns:2fr 1fr;gap:1rem}
+@media(max-width:720px){.charts{grid-template-columns:1fr}}
+.chartbox{background:#0d1220;border:1px solid #1f2937;border-radius:10px;padding:1rem;position:relative}
+.chartbox h3{margin:0 0 .75rem;font-size:.8rem;font-weight:500;color:#9ca3af;
+ text-transform:uppercase;letter-spacing:.05em}
+.cwrap{position:relative;height:260px}
+.section-chart{margin-top:1rem}.section-chart .cwrap{height:560px}
+.chart-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+ color:#4b5563;font-style:italic;font-size:.9rem;pointer-events:none}
 </style></head><body><div class="wrap">
 <h1>LeetCode 75</h1>
 <p class="sub">One problem a day. Solo first, debrief after. Missing a day costs a number, nothing else.</p>
@@ -258,6 +268,18 @@ a{color:#60a5fa;text-decoration:none}a:hover{text-decoration:underline}
   <div class="card"><div class="n" id="s-due"></div><div class="l">due for review</div></div>
 </div>
 <div class="next">Next up: <b id="s-next"></b></div>
+
+<h2>Charts</h2>
+<div class="charts">
+  <div class="chartbox"><h3>Cumulative progress</h3>
+    <div class="cwrap"><canvas id="c-cum"></canvas>
+      <div class="chart-empty" id="e-cum">no problems solved yet</div></div></div>
+  <div class="chartbox"><h3>Difficulty</h3>
+    <div class="cwrap"><canvas id="c-diff"></canvas>
+      <div class="chart-empty" id="e-diff">nothing solved yet</div></div></div>
+</div>
+<div class="chartbox section-chart"><h3>Section completion</h3>
+  <div class="cwrap"><canvas id="c-sec"></canvas></div></div>
 
 <h2>Review queue</h2>
 <div id="queue"></div>
@@ -323,6 +345,61 @@ $('log').innerHTML = solved.length
       <td><span class="pill">${p.pattern || '—'}</span></td>
       <td><a href="${notes(p)}">notes</a></td></tr>`).join('') + '</table>'
   : '<p class="empty">Nothing yet. Day 1 is 1768. Merge Strings Alternately.</p>';
+
+// ---- charts ----
+Chart.defaults.color = '#9ca3af';
+Chart.defaults.borderColor = '#1f2937';
+Chart.defaults.font.family = 'ui-sans-serif, system-ui, sans-serif';
+Chart.defaults.animation = false;  // static dashboard — no need to redraw every frame
+const GREEN = '#10b981', AMBER = '#fbbf24', GHOST = '#1f2937';
+
+const solvedChron = PROBLEMS.filter(p => p.solved).sort((a, b) => a.date.localeCompare(b.date));
+
+// 1. cumulative progress — running total by date
+if (solvedChron.length) {
+  $('e-cum').style.display = 'none';
+  const dates = [...new Set(solvedChron.map(p => p.date))];
+  let run = 0;
+  const cum = dates.map(d => run += solvedChron.filter(p => p.date === d).length);
+  new Chart($('c-cum'), {
+    type: 'line',
+    data: {labels: dates, datasets: [{
+      data: cum, borderColor: GREEN, backgroundColor: 'rgba(16,185,129,.15)',
+      fill: true, tension: .25, pointRadius: 3, pointBackgroundColor: GREEN}]},
+    options: {maintainAspectRatio: false, plugins: {legend: {display: false}},
+      scales: {y: {beginAtZero: true, suggestedMax: Math.max(5, ...cum), ticks: {precision: 0}}}}
+  });
+}
+
+// 2. difficulty donut — solved easy / solved medium / remaining
+if (STATS.solved) {
+  $('e-diff').style.display = 'none';
+  new Chart($('c-diff'), {
+    type: 'doughnut',
+    data: {labels: ['Easy', 'Medium', 'Left'],
+      datasets: [{data: [STATS.easy, STATS.medium, STATS.total - STATS.solved],
+        backgroundColor: [GREEN, AMBER, GHOST], borderColor: '#0d1220', borderWidth: 2}]},
+    options: {maintainAspectRatio: false, cutout: '62%',
+      plugins: {legend: {position: 'bottom', labels: {boxWidth: 12}}}}
+  });
+}
+
+// 3. section completion — solved stacked over remaining, one bar per section
+{
+  const secs = [...new Set(PROBLEMS.map(p => p.section))];
+  const label = s => s.slice(3).replace(/-/g, ' ');
+  const done = secs.map(s => PROBLEMS.filter(p => p.section === s && p.solved).length);
+  const tot = secs.map(s => PROBLEMS.filter(p => p.section === s).length);
+  new Chart($('c-sec'), {
+    type: 'bar',
+    data: {labels: secs.map(label), datasets: [
+      {label: 'solved', data: done, backgroundColor: GREEN},
+      {label: 'remaining', data: tot.map((t, i) => t - done[i]), backgroundColor: GHOST}]},
+    options: {maintainAspectRatio: false, indexAxis: 'y',
+      scales: {x: {stacked: true, ticks: {precision: 0}}, y: {stacked: true}},
+      plugins: {legend: {position: 'top', labels: {boxWidth: 12}}}}
+  });
+}
 
 mermaid.initialize({startOnLoad: true, theme: 'dark',
   themeVariables: {background: '#0d1220', fontSize: '13px'}});
