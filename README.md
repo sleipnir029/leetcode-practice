@@ -52,6 +52,34 @@ problem.
 
 ---
 
+## How the dashboard reads you
+
+Beyond counts, the dashboard evaluates *how you think*, not just *what you finished*. Three fields
+recorded honestly during each debrief drive it:
+
+- **approach** — where your *solo* attempt landed before help: `optimal / suboptimal / brute / stuck`
+- **recognized** — did you name the pattern before coding: `self / hinted / missed`
+- **mistakes** — tagged from a fixed list, so recurring bugs become countable
+
+From those it computes the signals that actually matter for interviews:
+
+- **Optimal-first rate** — do you find the key insight yourself, or reach working code and need
+  help to optimize? This is *the* number.
+- **Pattern recognition rate** — how often you see the pattern before the hint.
+- **Needs attention** — your weakest solved problems, ranked, with the reason.
+- **Recurring mistakes** — the bug category to drill.
+- **Pattern mastery** — per-pattern optimal-first %, recognition %, confidence, weakest first.
+- **Diagnosis** — those numbers turned into a plain-language read at the top of the page.
+
+Every rate shows its `n` and stays silent until ~5 solves — at one problem a day, a rate over
+three problems is noise, and the dashboard won't pretend otherwise.
+
+At **10 / 20 / 35 / 50 / 65 / 75** solved, `ASSESSMENT.md` gets a written milestone review that
+reads your actual pre-code plans and judges whether the reasoning is sharpening — the part no
+number can see. Trigger it anytime with `/assess`.
+
+---
+
 ## Layout
 
 ```

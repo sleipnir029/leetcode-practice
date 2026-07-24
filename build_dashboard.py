@@ -95,6 +95,131 @@ assert len({p[0] for p in SEED}) == 75, "duplicate problem id in seed list"
 
 INTERVALS = [1, 7, 30]  # days after solve date
 
+# --- evaluation layer ---
+# Guards so the dashboard doesn't lie at small n. At 1 problem/day a "rate" over
+# 3 points is noise; below MIN_RATE_N we show "need k more" instead of a number.
+MIN_RATE_N = 5
+WINDOW = 10
+MISTAKE_TAGS = ["off-by-one", "edge-empty", "wrong-complexity", "wrong-ds",
+                "premature-code", "logic", "syntax"]
+
+
+def _chron(progress):
+    """Solved entries oldest-first. Everything downstream assumes this order."""
+    return sorted(progress, key=lambda e: e["date"])
+
+
+def rate(solved, pred, window=WINDOW):
+    """(fraction matching pred, n) over the most recent `window` solved entries,
+    or None when there isn't enough data to be honest about."""
+    recent = _chron(solved)[-window:]
+    if len(recent) < MIN_RATE_N:
+        return None
+    return sum(1 for e in recent if pred(e)) / len(recent), len(recent)
+
+
+def optimal_first_rate(solved, window=WINDOW):
+    return rate(solved, lambda e: e.get("approach") == "optimal", window)
+
+
+def recognition_rate(solved, window=WINDOW):
+    return rate(solved, lambda e: e.get("recognized") == "self", window)
+
+
+def trend(solved, pred, window=WINDOW):
+    """up / flat / down comparing the last `window` to the window before it.
+    None until two full windows of data exist — a single window has nothing to
+    compare against, and inventing a direction there would be the small-n lie."""
+    chron = _chron(solved)
+    if len(chron) < 2 * MIN_RATE_N:
+        return None
+    recent, prior = chron[-window:], chron[-2 * window:-window]
+    if not prior:
+        return None
+    r = sum(1 for e in recent if pred(e)) / len(recent)
+    p = sum(1 for e in prior if pred(e)) / len(prior)
+    if r - p > 0.1:
+        return "up"
+    if p - r > 0.1:
+        return "down"
+    return "flat"
+
+
+def _median(xs):
+    xs = sorted(xs)
+    n = len(xs)
+    if not n:
+        return 0
+    mid = n // 2
+    return xs[mid] if n % 2 else (xs[mid - 1] + xs[mid]) / 2
+
+
+def solve_time_trend(solved, diff, window=WINDOW):
+    """(recent median minutes, prior median, direction) for one difficulty,
+    or None below MIN_RATE_N. 'down' in minutes is improvement."""
+    chron = [e for e in _chron(solved) if e.get("minutes")]
+    chron = [e for e in chron if _diff_of(e) == diff]
+    if len(chron) < MIN_RATE_N:
+        return None
+    recent = chron[-window:]
+    prior = chron[-2 * window:-window]
+    rm = _median([e["minutes"] for e in recent])
+    if not prior:
+        return rm, None, None
+    pm = _median([e["minutes"] for e in prior])
+    direction = "down" if rm < pm - 2 else "up" if rm > pm + 2 else "flat"
+    return rm, pm, direction
+
+
+_SEED_DIFF = {pid: diff for pid, _t, diff, _s in SEED}
+
+
+def _diff_of(entry):
+    return _SEED_DIFF.get(entry["id"], "")
+
+
+def mistake_taxonomy(solved):
+    """{tag: count} across every solved entry, tags in fixed vocabulary order."""
+    counts = {t: 0 for t in MISTAKE_TAGS}
+    for e in solved:
+        for m in e.get("mistakes", []):
+            if m in counts:
+                counts[m] += 1
+    return {t: c for t, c in counts.items() if c}
+
+
+def attention_score(entry, overdue):
+    """Higher = needs work. A weighted sum, not a model — every term is a thing
+    the debrief actually observed."""
+    s = 0
+    c = entry.get("confidence", 3)
+    s += 2 if c <= 2 else 1 if c == 3 else 0
+    if entry.get("solo") in ("timeout", "wrong"):
+        s += 2
+    ap = entry.get("approach")
+    s += 2 if ap in ("brute", "stuck") else 1 if ap == "suboptimal" else 0
+    if overdue and overdue > 0:
+        s += 1
+    if not entry.get("reviews"):
+        s += 1  # solved once, never revisited
+    return s
+
+
+def attention_reason(entry):
+    c = entry.get("confidence", 3)
+    ap = entry.get("approach")
+    if ap in ("brute", "stuck"):
+        return "only reached " + ap
+    if entry.get("solo") in ("timeout", "wrong"):
+        return "failed solo (" + entry["solo"] + ")"
+    if c <= 2:
+        return "low confidence"
+    if ap == "suboptimal":
+        return "suboptimal approach"
+    if not entry.get("reviews"):
+        return "never reviewed"
+    return "needs a pass"
+
 
 def slug(title):
     # apostrophes vanish rather than becoming separators: "1's" -> "1s", matching LC's own urls
@@ -142,6 +267,7 @@ def build(progress, today):
     for pid, title, diff, section in SEED:
         e = by_id.get(pid)
         due = next_review(e, today) if e else None
+        overdue = (today - due).days if due and due <= today else None
         problems.append({
             "id": pid, "title": title, "diff": diff, "section": section,
             "slug": slug(title),
@@ -151,8 +277,14 @@ def build(progress, today):
             "date": (e or {}).get("date", ""),
             "minutes": (e or {}).get("minutes", 0),
             "solo": (e or {}).get("solo", ""),
+            "approach": (e or {}).get("approach", ""),
+            "recognized": (e or {}).get("recognized", ""),
+            "mistakes": (e or {}).get("mistakes", []),
+            "reviews": (e or {}).get("reviews", []),
             "due": due.isoformat() if due else "",
-            "overdue": (today - due).days if due and due <= today else None,
+            "overdue": overdue,
+            "attention": attention_score(e, overdue) if e else 0,
+            "reason": attention_reason(e) if e else "",
         })
     stats = {
         "solved": len(progress),
@@ -167,7 +299,107 @@ def build(progress, today):
     }
     nxt = next((p for p in problems if not p["solved"]), None)
     stats["next"] = f'{nxt["id"]}. {nxt["title"]} ({nxt["diff"]})' if nxt else "all 75 done"
+
+    # cognition rates for the header + trend charts
+    ofr = optimal_first_rate(progress)
+    rec = recognition_rate(progress)
+    stats["optimalFirst"] = {"rate": round(ofr[0], 2), "n": ofr[1]} if ofr else None
+    stats["recognition"] = {"rate": round(rec[0], 2), "n": rec[1]} if rec else None
+    stats["minRateN"] = MIN_RATE_N
+    stats["diagnosis"] = diagnosis(progress, problems)
+    stats["mistakes"] = mistake_taxonomy(progress)
+    stats["cognitionSeries"] = cognition_series(progress)
+    stats["patternMastery"] = pattern_mastery(problems)
     return problems, stats
+
+
+def cognition_series(solved, window=WINDOW):
+    """Per-solve rolling rates, so the trend charts have a line to draw.
+    Point i = rate over the window ending at solve i. Empty below MIN_RATE_N."""
+    chron = _chron(solved)
+    if len(chron) < MIN_RATE_N:
+        return {"labels": [], "optimal": [], "recognition": []}
+    labels, opt, rec = [], [], []
+    for i in range(MIN_RATE_N, len(chron) + 1):
+        win = chron[max(0, i - window):i]
+        labels.append(chron[i - 1]["date"])
+        opt.append(round(100 * sum(1 for e in win if e.get("approach") == "optimal") / len(win)))
+        rec.append(round(100 * sum(1 for e in win if e.get("recognized") == "self") / len(win)))
+    return {"labels": labels, "optimal": opt, "recognition": rec}
+
+
+def pattern_mastery(problems):
+    """Per pattern: how many, avg confidence, self-recognition %, optimal-first %.
+    Sorted weakest first — the 'what am I lacking' view."""
+    out = {}
+    for p in problems:
+        if not p["solved"] or not p["pattern"]:
+            continue
+        out.setdefault(p["pattern"], []).append(p)
+    rows = []
+    for pat, ps in out.items():
+        n = len(ps)
+        rows.append({
+            "pattern": pat, "n": n,
+            "conf": round(sum(p["confidence"] for p in ps) / n, 1),
+            "recog": round(100 * sum(1 for p in ps if p["recognized"] == "self") / n),
+            "optimal": round(100 * sum(1 for p in ps if p["approach"] == "optimal") / n),
+        })
+    rows.sort(key=lambda r: (r["optimal"], r["conf"]))
+    return rows
+
+
+def diagnosis(solved, problems):
+    """Numbers → a coach's read. Each flag is (level, text); level ∈ good/watch/gap.
+    Everything n-guarded so nothing speaks before there's data to stand on."""
+    flags = []
+    n = len(solved)
+    if n < MIN_RATE_N:
+        flags.append(("watch", f"Building baseline — {MIN_RATE_N - n} more solves before the "
+                               f"evaluation kicks in. Rates over {n} problems would just be noise."))
+        return flags
+
+    ofr = optimal_first_rate(solved)
+    if ofr:
+        pct = round(100 * ofr[0])
+        t = trend(solved, lambda e: e.get("approach") == "optimal")
+        arrow = {"up": " (rising)", "down": " (slipping)", "flat": ""}.get(t, "")
+        if pct >= 60:
+            flags.append(("good", f"Optimal-first {pct}% (n={ofr[1]}){arrow} — you're finding the "
+                                  f"key insight yourself, not just grinding brute force."))
+        else:
+            flags.append(("gap", f"Optimal-first {pct}% (n={ofr[1]}){arrow} — you reach working "
+                                 f"code but often miss the optimizing insight. That's the interview gap."))
+
+    rec = recognition_rate(solved)
+    if rec:
+        pct = round(100 * rec[0])
+        t = trend(solved, lambda e: e.get("recognized") == "self")
+        arrow = {"up": " and rising", "down": " and slipping", "flat": ""}.get(t, "")
+        level = "good" if pct >= 60 else "watch"
+        flags.append((level, f"Pattern recognition {pct}%{arrow} — how often you name the pattern "
+                             f"before coding, not after the hint."))
+
+    tax = mistake_taxonomy(solved)
+    if tax:
+        top, cnt = max(tax.items(), key=lambda kv: kv[1])
+        total = sum(tax.values())
+        if cnt >= 3 and cnt / total >= 0.3:
+            flags.append(("watch", f"Recurring bug: {top} ({cnt} of {total} logged mistakes) — "
+                                   f"worth a targeted drill."))
+
+    st = solve_time_trend(solved, "medium")
+    if st and st[2] == "down":
+        flags.append(("good", f"Mediums are getting faster: median {round(st[1])}→{round(st[0])} min."))
+    elif st and st[2] == "up":
+        flags.append(("watch", f"Mediums slowing: median {round(st[1])}→{round(st[0])} min — "
+                               f"harder sections, or fatigue?"))
+
+    overdue = [p for p in problems if p["overdue"] and p["overdue"] > 0]
+    if len(overdue) >= 3:
+        flags.append(("watch", f"{len(overdue)} reviews overdue — retention decays without them; "
+                               f"clear the queue before new problems."))
+    return flags
 
 
 def mermaid(problems):
@@ -255,6 +487,15 @@ a{color:#60a5fa;text-decoration:none}a:hover{text-decoration:underline}
 .section-chart{margin-top:1rem}.section-chart .cwrap{height:560px}
 .chart-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
  color:#4b5563;font-style:italic;font-size:.9rem;pointer-events:none}
+.diag{display:flex;flex-direction:column;gap:.5rem;margin:1rem 0}
+.flag{border-left:3px solid;border-radius:6px;padding:.6rem .9rem;background:#111827;font-size:.92rem}
+.flag.good{border-color:#10b981}.flag.watch{border-color:#fbbf24}.flag.gap{border-color:#f87171}
+.flag .tag{font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;font-weight:600;
+ margin-right:.5rem}
+.flag.good .tag{color:#34d399}.flag.watch .tag{color:#fbbf24}.flag.gap .tag{color:#f87171}
+.rategrid{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1rem}
+@media(max-width:560px){.rategrid{grid-template-columns:1fr}}
+.reason{color:#9ca3af;font-size:.85rem}
 </style></head><body><div class="wrap">
 <h1>LeetCode 75</h1>
 <p class="sub">One problem a day. Solo first, debrief after. Missing a day costs a number, nothing else.</p>
@@ -268,6 +509,29 @@ a{color:#60a5fa;text-decoration:none}a:hover{text-decoration:underline}
   <div class="card"><div class="n" id="s-due"></div><div class="l">due for review</div></div>
 </div>
 <div class="next">Next up: <b id="s-next"></b></div>
+
+<h2>Diagnosis — your read</h2>
+<div class="diag" id="diag"></div>
+
+<h2>Cognition — the interview signals</h2>
+<div class="rategrid">
+  <div class="chartbox"><h3>Optimal-first rate</h3>
+    <div class="cwrap"><canvas id="c-opt"></canvas>
+      <div class="chart-empty" id="e-opt"></div></div></div>
+  <div class="chartbox"><h3>Pattern recognition rate</h3>
+    <div class="cwrap"><canvas id="c-rec"></canvas>
+      <div class="chart-empty" id="e-rec"></div></div></div>
+</div>
+
+<h2>Needs attention</h2>
+<div id="attention"></div>
+
+<h2>Recurring mistakes</h2>
+<div class="chartbox"><div class="cwrap" style="height:220px"><canvas id="c-mist"></canvas>
+  <div class="chart-empty" id="e-mist">no mistakes logged yet</div></div></div>
+
+<h2>Pattern mastery</h2>
+<div class="scroll"><table id="mastery"></table></div>
 
 <h2>Charts</h2>
 <div class="charts">
@@ -309,6 +573,34 @@ $('s-easy').textContent = `${STATS.easy}/${STATS.easyTotal}`;
 $('s-medium').textContent = `${STATS.medium}/${STATS.mediumTotal}`;
 $('s-due').textContent = due.length;
 $('s-next').textContent = STATS.next;
+
+// diagnosis flags
+$('diag').innerHTML = (STATS.diagnosis || []).map(([lvl, text]) =>
+  `<div class="flag ${lvl}"><span class="tag">${lvl}</span>${text}</div>`).join('')
+  || '<p class="empty">No read yet.</p>';
+
+// attention list — weakest solved problems first
+const att = PROBLEMS.filter(p => p.solved && p.attention > 0)
+  .sort((a, b) => b.attention - a.attention).slice(0, 8);
+$('attention').innerHTML = att.length
+  ? '<div class="scroll"><table><tr><th>#</th><th>Problem</th><th>Why</th>' +
+    '<th>Pattern</th><th>Notes</th></tr>' +
+    att.map(p => `<tr><td>${p.id}</td>
+      <td><a href="${lc(p)}" target="_blank">${p.title}</a></td>
+      <td class="reason">${p.reason}</td>
+      <td><span class="pill">${p.pattern || '—'}</span></td>
+      <td><a href="${notes(p)}">notes</a></td></tr>`).join('') + '</table></div>'
+  : '<p class="empty">Nothing flagged — either too early, or everything solid.</p>';
+
+// pattern mastery table
+const pm = STATS.patternMastery || [];
+$('mastery').innerHTML = pm.length
+  ? '<tr><th>Pattern</th><th>Solved</th><th>Optimal-first</th><th>Recognized</th><th>Avg conf</th></tr>' +
+    pm.map(r => `<tr><td>${r.pattern}</td><td>${r.n}</td>
+      <td>${r.optimal}%</td><td>${r.recog}%</td>
+      <td class="dots">${'●'.repeat(Math.round(r.conf)) + '○'.repeat(5 - Math.round(r.conf))}</td></tr>`
+    ).join('')
+  : '<tr><td class="empty">No patterns logged yet.</td></tr>';
 
 if (!due.length) {
   $('queue').innerHTML = '<p class="empty">Nothing due. Do the next new problem.</p>';
@@ -401,6 +693,43 @@ if (STATS.solved) {
   });
 }
 
+// 4 & 5. cognition trend lines — only when enough data, else a "need k more" note
+const cs = STATS.cognitionSeries || {labels: []};
+function trendLine(canvasId, emptyId, series, colour) {
+  const need = STATS.minRateN - STATS.solved;
+  if (!series || !series.length) {
+    $(emptyId).textContent = need > 0
+      ? `need ${need} more solve${need > 1 ? 's' : ''} before this is meaningful`
+      : 'not enough data yet';
+    return;
+  }
+  $(emptyId).style.display = 'none';
+  new Chart($(canvasId), {
+    type: 'line',
+    data: {labels: cs.labels, datasets: [{
+      data: series, borderColor: colour, backgroundColor: colour + '26',
+      fill: true, tension: .3, pointRadius: 2}]},
+    options: {maintainAspectRatio: false, plugins: {legend: {display: false}},
+      scales: {y: {min: 0, max: 100, ticks: {callback: v => v + '%'}}}}
+  });
+}
+trendLine('c-opt', 'e-opt', cs.optimal, '#34d399');
+trendLine('c-rec', 'e-rec', cs.recognition, '#818cf8');
+
+// 6. mistake taxonomy — horizontal bar
+const mist = STATS.mistakes || {};
+const mkeys = Object.keys(mist);
+if (mkeys.length) {
+  $('e-mist').style.display = 'none';
+  new Chart($('c-mist'), {
+    type: 'bar',
+    data: {labels: mkeys, datasets: [{data: mkeys.map(k => mist[k]),
+      backgroundColor: '#f87171'}]},
+    options: {maintainAspectRatio: false, indexAxis: 'y',
+      plugins: {legend: {display: false}}, scales: {x: {ticks: {precision: 0}}}}
+  });
+}
+
 mermaid.initialize({startOnLoad: true, theme: 'dark',
   themeVariables: {background: '#0d1220', fontSize: '13px'}});
 </script></body></html>
@@ -453,6 +782,65 @@ def demo():
                         "solo": "solved", "reviews": []}], t)
     assert st["solved"] == 1 and st["easy"] == 1 and st["next"].startswith("1071.")
     assert [p for p in probs if p["id"] == 1768][0]["due"] == "2026-08-02"
+
+    # --- evaluation layer ---
+    ids = [p[0] for p in SEED]
+
+    def mk(i, approach="optimal", recognized="self", mistakes=None, conf=4,
+           solo="solved", minutes=30, reviews=None):
+        return {"id": ids[i], "date": f"2026-08-{i + 1:02d}", "confidence": conf,
+                "pattern": "p", "minutes": minutes, "solo": solo, "approach": approach,
+                "recognized": recognized, "mistakes": mistakes or [],
+                "reviews": reviews if reviews is not None else []}
+
+    # rate: None below MIN_RATE_N, real fraction above
+    assert optimal_first_rate([mk(i) for i in range(4)]) is None
+    r = optimal_first_rate([mk(i, approach="optimal" if i < 3 else "brute") for i in range(6)])
+    assert r == (3 / 6, 6), r
+    assert recognition_rate([mk(i, recognized="self" if i % 2 else "missed")
+                             for i in range(6)])[0] == 0.5
+
+    # trend: needs two full-ish windows; None with one
+    small = [mk(i) for i in range(6)]
+    assert trend(small, lambda e: e["approach"] == "optimal") is None
+    improving = [mk(i, approach="brute") for i in range(10)] + \
+                [mk(10 + i, approach="optimal") for i in range(10)]
+    assert trend(improving, lambda e: e["approach"] == "optimal", window=10) == "up"
+
+    # mistake taxonomy counts across entries, ignores unknown tags
+    tax = mistake_taxonomy([mk(0, mistakes=["off-by-one", "logic"]),
+                            mk(1, mistakes=["off-by-one", "bogus"])])
+    assert tax == {"off-by-one": 2, "logic": 1}, tax
+
+    # attention: weak brute-force timeout outranks a clean confident solve
+    weak = attention_score({"confidence": 1, "solo": "timeout", "approach": "brute",
+                            "reviews": []}, overdue=3)
+    strong = attention_score({"confidence": 5, "solo": "solved", "approach": "optimal",
+                             "reviews": ["x"]}, overdue=None)
+    assert weak > strong and strong == 0, (weak, strong)
+
+    # solve-time trend: 'down' is improvement
+    slower_then_faster = [mk(i, minutes=50) for i in range(10)] + \
+                         [mk(10 + i, minutes=30) for i in range(10)]
+    st_med = solve_time_trend([{**e, "id": 11} for e in slower_then_faster], "medium", window=10)
+    assert st_med[2] == "down", st_med
+
+    # pattern_mastery sorts weakest (lowest optimal%) first
+    pm = pattern_mastery([
+        {"solved": True, "pattern": "strong", "confidence": 5, "recognized": "self", "approach": "optimal"},
+        {"solved": True, "pattern": "weak", "confidence": 2, "recognized": "missed", "approach": "brute"},
+    ])
+    assert pm[0]["pattern"] == "weak", pm
+
+    # diagnosis: silent-ish baseline below MIN_RATE_N, real flags above
+    assert diagnosis([mk(i) for i in range(3)], [])[0][0] == "watch"
+    flags = diagnosis([mk(i) for i in range(8)], [])
+    assert any("Optimal-first" in f[1] for f in flags)
+
+    # build() surfaces the eval fields onto stats and problems
+    _, st2 = build([mk(i) for i in range(6)], t)
+    assert st2["optimalFirst"]["n"] == 6 and st2["optimalFirst"]["rate"] == 1.0
+    assert isinstance(st2["diagnosis"], list) and st2["diagnosis"]
     print("all checks passed")
 
 

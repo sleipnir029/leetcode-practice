@@ -3,6 +3,12 @@
 Section: <nn-section>  |  Pattern: <filled during debrief>  |  Date: <YYYY-MM-DD>
 Solo result: solved / timeout / wrong-answer  |  Time used: <n> min
 
+<!-- These four are the evaluation signals — Claude fills them during the debrief. -->
+Approach reached solo (before help): optimal / suboptimal / brute / stuck
+Pattern recognized in think phase: self / hinted / missed
+Mistakes: off-by-one / edge-empty / wrong-complexity / wrong-ds / premature-code / logic / syntax / none
+Confidence after quiz (1-5): <n>
+
 ## Restate — my own words, 1–2 lines
 
 ## Approach, written BEFORE coding

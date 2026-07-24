@@ -37,6 +37,14 @@ Triggered by `/debrief <id>` or the user pasting a problem + their code.
 7. **Re-implement.** They close everything and write it again from blank. That version is what
    gets committed. This step *is* the learning; it is never optional.
 
+During the debrief, decide and record the three evaluation fields (see logging). Score them
+**straight** — if the solo attempt was a brute force, `approach` is `"brute"`, not a kinder word.
+A flattered metric teaches nothing. These are *my* judgment of their **solo** work before any help:
+- `approach`: `optimal | suboptimal | brute | stuck` — where they landed on their own.
+- `recognized`: `self | hinted | missed` — did they name the pattern in the think phase.
+- `mistakes`: list from `off-by-one, edge-empty, wrong-complexity, wrong-ds, premature-code,
+  logic, syntax` (empty = clean).
+
 ## Quiz rules
 
 - No code visible while quizzing.
@@ -45,13 +53,26 @@ Triggered by `/debrief <id>` or the user pasting a problem + their code.
 
 ## Logging checklist — every time, in this order
 
-1. Append the entry to `progress.json`
-   (`id, slug, difficulty, topic, pattern, date, solo, minutes, confidence, reviews: []`).
+1. Append the entry to `progress.json` with all fields:
+   `id, slug, difficulty, topic, pattern, date, solo, minutes, confidence,
+   approach, recognized, mistakes: [], reviews: []`.
 2. Append a row to `patterns.md` — trigger first.
-3. Append to `mistakes.md` if anything was missed.
+3. Append to `mistakes.md` if anything was missed (the freeform detail; the `mistakes` array
+   in progress.json is the countable tag version of the same thing).
 4. `python3 build_dashboard.py`
 5. Commit: `solve: <id> <slug> (<difficulty>, <solo-result>)`. Body only if the debrief
    surfaced something non-obvious.
+6. **Milestone check:** if this solve brings the total to 10, 20, 35, 50, 65, or 75, run the
+   assessment (see below) before finishing.
+
+## Milestone assessments
+
+At 10 / 20 / 35 / 50 / 65 / 75 solved, write a dated entry into `ASSESSMENT.md`. This is the
+qualitative layer the dashboard's numbers can't reach: read the `## Approach before coding`
+sections across the `notes.md` files plus the current metrics, and judge whether the *reasoning
+itself* is sharpening — are pre-code plans getting crisper, are complexity guesses landing before
+I correct them, is the same class of mistake recurring. Be specific and direct. `/assess` triggers
+it on demand too.
 
 Title and difficulty are **not** stored in `progress.json` — they come from `SEED` in
 `build_dashboard.py` by id, so they can't drift.

@@ -20,5 +20,9 @@ dump all seven at once, and do not give away step 3 or 4 while still in step 1 o
 
 If they haven't actually attempted it yet, stop: refer them to the timer wall rule.
 
-When step 7 is done, run the logging checklist in `CLAUDE.md` (progress.json → patterns.md →
-mistakes.md → `python3 build_dashboard.py` → commit).
+While debriefing, decide the three evaluation fields honestly (`approach`, `recognized`,
+`mistakes`) — see the debrief protocol in `CLAUDE.md`. Score the solo attempt straight; "brute"
+and "stuck" are recorded as-is.
+
+When step 7 is done, run the logging checklist in `CLAUDE.md` (progress.json with all fields →
+patterns.md → mistakes.md → `python3 build_dashboard.py` → commit → milestone check).
