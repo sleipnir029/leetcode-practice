@@ -78,6 +78,20 @@ At **10 / 20 / 35 / 50 / 65 / 75** solved, `ASSESSMENT.md` gets a written milest
 reads your actual pre-code plans and judges whether the reasoning is sharpening — the part no
 number can see. Trigger it anytime with `/assess`.
 
+### Reading it comfortably
+
+The dashboard is built for readability:
+
+- **Text size** — `A− / A / A+` in the top bar scales the whole page; your choice is remembered.
+- **Light / dark** — toggle in the top bar, also remembered; both are high-contrast.
+- **Every chart has a table** — a "Show these numbers as a table" link under each chart, since a
+  column of numbers is often clearer than a plotted line. Charts are backed by `aria-label`s and
+  the page uses proper headings, so a screen reader can navigate it.
+- **Colour is never the only signal** — the diagnosis uses ▲ good / ● watch / ▼ gap icons and
+  words, not just colour, on a colourblind-safe palette.
+- **Guidance is on the page** — each section has a plain-language "what this shows / what to do"
+  block, so nothing is cryptic.
+
 ---
 
 ## Layout

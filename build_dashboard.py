@@ -350,55 +350,100 @@ def pattern_mastery(problems):
 
 
 def diagnosis(solved, problems):
-    """Numbers → a coach's read. Each flag is (level, text); level ∈ good/watch/gap.
-    Everything n-guarded so nothing speaks before there's data to stand on."""
+    """Numbers → a coach's read. Each flag is (level, observation, action);
+    level ∈ good/watch/gap. Everything n-guarded so nothing speaks before there's
+    data to stand on. The action is the 'what to do about it' the observation implies."""
     flags = []
     n = len(solved)
     if n < MIN_RATE_N:
-        flags.append(("watch", f"Building baseline — {MIN_RATE_N - n} more solves before the "
-                               f"evaluation kicks in. Rates over {n} problems would just be noise."))
+        left = MIN_RATE_N - n
+        flags.append((
+            "watch",
+            f"Building your baseline. You've logged {n} of the {MIN_RATE_N} solves needed before "
+            f"the evaluation can say anything trustworthy.",
+            f"Just keep going — {left} more problem{'s' if left != 1 else ''} and the real numbers "
+            f"(optimal-first rate, pattern recognition, recurring bugs) switch on. A rate over "
+            f"{n} problem{'s' if n != 1 else ''} would be noise, so it stays quiet on purpose."))
         return flags
 
     ofr = optimal_first_rate(solved)
     if ofr:
         pct = round(100 * ofr[0])
         t = trend(solved, lambda e: e.get("approach") == "optimal")
-        arrow = {"up": " (rising)", "down": " (slipping)", "flat": ""}.get(t, "")
+        arrow = {"up": ", and rising", "down": ", and slipping lately", "flat": ""}.get(t, "")
         if pct >= 60:
-            flags.append(("good", f"Optimal-first {pct}% (n={ofr[1]}){arrow} — you're finding the "
-                                  f"key insight yourself, not just grinding brute force."))
+            flags.append((
+                "good",
+                f"You reach the optimal idea on your own {pct}% of the time (last {ofr[1]} problems)"
+                f"{arrow}. That's the skill interviews actually test — you're not just grinding brute "
+                f"force and waiting for the trick.",
+                "Keep pushing the think-phase before you code. When you do miss optimal, that problem "
+                "is the one worth re-solving."))
         else:
-            flags.append(("gap", f"Optimal-first {pct}% (n={ofr[1]}){arrow} — you reach working "
-                                 f"code but often miss the optimizing insight. That's the interview gap."))
+            flags.append((
+                "gap",
+                f"You reach the optimal idea on your own {pct}% of the time (last {ofr[1]} problems)"
+                f"{arrow}. Usually you get to working code but stop before the insight that removes "
+                f"the extra time or space. That gap is the single biggest interview risk.",
+                "In the think-phase, after you have any working idea, spend two more minutes on one "
+                "question: 'what am I recomputing, and can I store it?' That question unlocks most "
+                "optimal solutions on this list."))
 
     rec = recognition_rate(solved)
     if rec:
         pct = round(100 * rec[0])
         t = trend(solved, lambda e: e.get("recognized") == "self")
-        arrow = {"up": " and rising", "down": " and slipping", "flat": ""}.get(t, "")
-        level = "good" if pct >= 60 else "watch"
-        flags.append((level, f"Pattern recognition {pct}%{arrow} — how often you name the pattern "
-                             f"before coding, not after the hint."))
+        arrow = {"up": ", trending up", "down": ", trending down", "flat": ""}.get(t, "")
+        if pct >= 60:
+            flags.append((
+                "good",
+                f"You name the right pattern before coding {pct}% of the time{arrow}. Recognition is "
+                f"the thing that makes an unseen problem feel familiar.",
+                "Keep reading the Trigger line in patterns.md before each session — it's paying off."))
+        else:
+            flags.append((
+                "watch",
+                f"You spot the pattern before coding {pct}% of the time{arrow} — more often you find "
+                f"it only after the hint. Recognition is what turns a scary unseen problem into a "
+                f"familiar one.",
+                "Before each session, spend 60 seconds re-reading the Trigger column in patterns.md. "
+                "You're training the 'this smells like a two-pointer problem' reflex."))
 
     tax = mistake_taxonomy(solved)
     if tax:
         top, cnt = max(tax.items(), key=lambda kv: kv[1])
         total = sum(tax.values())
         if cnt >= 3 and cnt / total >= 0.3:
-            flags.append(("watch", f"Recurring bug: {top} ({cnt} of {total} logged mistakes) — "
-                                   f"worth a targeted drill."))
+            flags.append((
+                "watch",
+                f"One bug keeps coming back: {top} ({cnt} of your {total} logged mistakes). It's not "
+                f"bad luck at this point — it's a habit.",
+                f"Before you hit run, do a 30-second check aimed only at {top}. Naming the specific "
+                f"failure mode is how you stop repeating it."))
 
     st = solve_time_trend(solved, "medium")
     if st and st[2] == "down":
-        flags.append(("good", f"Mediums are getting faster: median {round(st[1])}→{round(st[0])} min."))
+        flags.append((
+            "good",
+            f"Mediums are getting faster: your median dropped from {round(st[1])} to {round(st[0])} "
+            f"minutes. Speed here is recognition plus fewer false starts, not rushing.",
+            "Nothing to fix — this is exactly the curve you want."))
     elif st and st[2] == "up":
-        flags.append(("watch", f"Mediums slowing: median {round(st[1])}→{round(st[0])} min — "
-                               f"harder sections, or fatigue?"))
+        flags.append((
+            "watch",
+            f"Mediums are taking longer: median up from {round(st[1])} to {round(st[0])} minutes. "
+            f"Could be harder sections (graphs/DP are genuinely tougher) or fatigue.",
+            "If it's the harder sections, that's expected — don't read it as regression. If it's "
+            "fatigue, a rest day beats a bad session."))
 
     overdue = [p for p in problems if p["overdue"] and p["overdue"] > 0]
     if len(overdue) >= 3:
-        flags.append(("watch", f"{len(overdue)} reviews overdue — retention decays without them; "
-                               f"clear the queue before new problems."))
+        flags.append((
+            "watch",
+            f"{len(overdue)} reviews are overdue. Spaced repetition only works if the repetitions "
+            f"actually happen — a solved problem you never revisit fades within weeks.",
+            "Run /due and clear the queue before starting a new problem. Reviews take ~10 minutes "
+            "and don't use up your daily problem."))
     return flags
 
 
@@ -442,296 +487,476 @@ TEMPLATE = """<!doctype html>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <style>
-:root{color-scheme:dark}
-body{margin:0;padding:2rem;background:#0b0f19;color:#e5e7eb;
- font:15px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
-.wrap{max-width:1100px;margin:0 auto}
-h1{font-size:1.5rem;margin:0 0 .25rem}
-h2{font-size:1rem;text-transform:uppercase;letter-spacing:.08em;color:#9ca3af;
- margin:2.5rem 0 .75rem;border-bottom:1px solid #1f2937;padding-bottom:.4rem}
-.sub{color:#6b7280;margin:0 0 2rem}
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:.75rem}
-.card{background:#111827;border:1px solid #1f2937;border-radius:10px;padding:.9rem 1rem}
-.card .n{font-size:1.7rem;font-weight:600;line-height:1.1}
-.card .l{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:#6b7280;margin-top:.2rem}
-.bar{height:8px;background:#1f2937;border-radius:99px;overflow:hidden;margin:.6rem 0 0}
-.bar>i{display:block;height:100%;background:linear-gradient(90deg,#10b981,#34d399)}
-.next{background:#111827;border:1px solid #10b981;border-radius:10px;padding:1rem;margin-top:1rem}
-.next b{color:#34d399}
-table{width:100%;border-collapse:collapse;font-size:.9rem}
-th{text-align:left;color:#6b7280;font-weight:500;font-size:.75rem;text-transform:uppercase;
- letter-spacing:.05em;padding:.4rem .6rem;border-bottom:1px solid #1f2937}
-td{padding:.45rem .6rem;border-bottom:1px solid #131a29}
-tr:hover td{background:#111827}
-a{color:#60a5fa;text-decoration:none}a:hover{text-decoration:underline}
-.easy{color:#34d399}.medium{color:#fbbf24}
-.pill{background:#1f2937;border-radius:99px;padding:.1rem .55rem;font-size:.75rem;color:#9ca3af}
-.late{color:#f87171;font-weight:600}
-.empty{color:#6b7280;font-style:italic;padding:1rem 0}
-.scroll{overflow-x:auto}
-.mini{height:6px;background:#1f2937;border-radius:99px;width:150px;display:inline-block;
- vertical-align:middle;overflow:hidden}
-#sections td:nth-child(2){width:160px}
-#sections td:nth-child(3){width:60px;color:#9ca3af}
-#sections th:first-child,#sections td:first-child{width:200px}
-.mini>i{display:block;height:100%;background:#10b981}
-.dots{letter-spacing:2px;color:#4b5563}
-.mermaid{background:#0d1220;border:1px solid #1f2937;border-radius:10px;padding:1rem;
- overflow-x:auto;text-align:center}
-.charts{display:grid;grid-template-columns:2fr 1fr;gap:1rem}
-@media(max-width:720px){.charts{grid-template-columns:1fr}}
-.chartbox{background:#0d1220;border:1px solid #1f2937;border-radius:10px;padding:1rem;position:relative}
-.chartbox h3{margin:0 0 .75rem;font-size:.8rem;font-weight:500;color:#9ca3af;
- text-transform:uppercase;letter-spacing:.05em}
-.cwrap{position:relative;height:260px}
-.section-chart{margin-top:1rem}.section-chart .cwrap{height:560px}
+/* ---- theme tokens (validated data-viz palette) ---- */
+:root{
+  --scale:1;
+  --page:#0d0d0d; --surface:#1a1a19; --surface-2:#232320;
+  --ink:#ffffff; --ink-2:#e6e5dd; --muted:#a9a89f;
+  --grid:#2c2c2a; --axis:#3a3a37; --border:rgba(255,255,255,.14);
+  --good:#22c55e; --watch:#fab219; --gap:#f16b6b;
+  --s-blue:#3987e5; --s-aqua:#1baf7a; --s-violet:#9085e9; --s-gray:#3a3a37;
+  --good-ink:#4ade80; --watch-ink:#fbbf24; --gap-ink:#f87171;
+}
+:root[data-theme="light"]{
+  --page:#f4f3ef; --surface:#ffffff; --surface-2:#f7f6f2;
+  --ink:#0b0b0b; --ink-2:#2b2b28; --muted:#5c5b56;
+  --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,.16);
+  --good:#0a8f0a; --watch:#b47600; --gap:#c62f2f;
+  --s-blue:#256abf; --s-aqua:#0f8a5f; --s-violet:#4a3aa7; --s-gray:#c3c2b7;
+  --good-ink:#0a7a0a; --watch-ink:#8a5a00; --gap-ink:#b02525;
+}
+*{box-sizing:border-box}
+html{font-size:calc(18px * var(--scale))}
+body{margin:0;padding:0 0 4rem;background:var(--page);color:var(--ink);
+ font-family:system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.7;
+ -webkit-font-smoothing:antialiased}
+.wrap{max-width:1000px;margin:0 auto;padding:0 1.25rem}
+a{color:var(--s-blue);text-decoration:underline;text-underline-offset:2px}
+:root[data-theme="light"] a{color:#1a5fb4}
+a:hover{text-decoration:none}
+:focus-visible{outline:3px solid var(--s-blue);outline-offset:2px;border-radius:4px}
+
+/* ---- sticky toolbar ---- */
+.bar{position:sticky;top:0;z-index:50;background:var(--page);
+ border-bottom:1px solid var(--border);padding:.6rem 0;margin-bottom:1.5rem}
+.bar .wrap{display:flex;align-items:center;gap:1rem;flex-wrap:wrap}
+.bar h1{font-size:1.35rem;margin:0;flex:1;min-width:12ch}
+.ctrl{display:flex;align-items:center;gap:.35rem}
+.ctrl .cl{font-size:.8rem;color:var(--muted);margin-right:.15rem}
+.btn{font:inherit;font-size:.95rem;background:var(--surface);color:var(--ink);
+ border:2px solid var(--border);border-radius:8px;padding:.35rem .7rem;cursor:pointer;
+ min-width:2.6rem;min-height:2.6rem;line-height:1}
+.btn:hover{border-color:var(--s-blue)}
+.btn[aria-pressed="true"]{background:var(--s-blue);border-color:var(--s-blue);color:#fff}
+
+h2{font-size:1.5rem;margin:2.75rem 0 .35rem;padding-top:.5rem}
+h2 .num{color:var(--muted);font-weight:600;font-size:1rem;margin-left:.5rem}
+.lead{color:var(--ink-2);font-size:1.02rem;margin:.35rem 0 1.1rem;max-width:68ch}
+
+/* ---- guidance box ---- */
+.guide{background:var(--surface-2);border:1px solid var(--border);border-radius:12px;
+ padding:1rem 1.15rem;margin:0 0 1.25rem;max-width:72ch}
+.guide dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:.35rem .9rem}
+.guide dt{font-weight:700;color:var(--muted);font-size:.85rem;text-transform:uppercase;
+ letter-spacing:.04em;white-space:nowrap;padding-top:.1rem}
+.guide dd{margin:0;color:var(--ink-2)}
+
+/* ---- hero + stat tiles ---- */
+.hero{background:var(--surface);border:1px solid var(--border);border-radius:16px;
+ padding:1.5rem 1.6rem;margin-bottom:1.25rem;display:flex;gap:1.5rem;align-items:center;
+ flex-wrap:wrap}
+.hero .fig{font-size:4.5rem;font-weight:700;line-height:1;letter-spacing:-.02em}
+.hero .fig.good{color:var(--good-ink)} .hero .fig.gap{color:var(--gap-ink)}
+.hero .fig.watch{color:var(--watch-ink)} .hero .fig.none{color:var(--muted);font-size:2.2rem}
+.hero .side{flex:1;min-width:16ch}
+.hero .side .t{font-size:1.15rem;font-weight:600;margin-bottom:.2rem}
+.hero .side .d{color:var(--ink-2)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.9rem;
+ margin-bottom:1.25rem}
+.tile{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:1.1rem 1.2rem}
+.tile .v{font-size:2.4rem;font-weight:700;line-height:1.05}
+.tile .k{font-size:.95rem;color:var(--muted);margin-top:.25rem}
+.tile .track{height:10px;background:var(--surface-2);border-radius:99px;overflow:hidden;margin-top:.6rem;
+ border:1px solid var(--border)}
+.tile .track>i{display:block;height:100%;background:var(--good)}
+
+.next{background:var(--surface);border:2px solid var(--good);border-radius:14px;
+ padding:1.1rem 1.3rem;margin-bottom:.5rem;font-size:1.15rem}
+.next b{color:var(--good-ink)}
+
+/* ---- diagnosis ---- */
+.diag{display:flex;flex-direction:column;gap:.85rem;margin-bottom:.5rem}
+.flag{background:var(--surface);border:1px solid var(--border);border-left-width:6px;
+ border-radius:12px;padding:1rem 1.2rem}
+.flag.good{border-left-color:var(--good)} .flag.watch{border-left-color:var(--watch)}
+.flag.gap{border-left-color:var(--gap)}
+.flag .hd{display:flex;align-items:center;gap:.5rem;font-weight:700;margin-bottom:.35rem;font-size:1.05rem}
+.flag .ic{font-size:1.15rem;line-height:1}
+.flag.good .ic,.flag.good .lv{color:var(--good-ink)}
+.flag.watch .ic,.flag.watch .lv{color:var(--watch-ink)}
+.flag.gap .ic,.flag.gap .lv{color:var(--gap-ink)}
+.flag .lv{text-transform:uppercase;letter-spacing:.05em;font-size:.8rem}
+.flag .obs{color:var(--ink)} .flag .act{color:var(--ink-2);margin-top:.5rem}
+.flag .act b{color:var(--ink)}
+
+/* ---- charts ---- */
+.chartbox{background:var(--surface);border:1px solid var(--border);border-radius:14px;
+ padding:1.1rem 1.2rem;margin-bottom:1.25rem}
+.chartbox h3{margin:0 0 .8rem;font-size:1.05rem}
+.cwrap{position:relative;height:300px}
+.cwrap.tall{height:600px} .cwrap.short{height:240px}
 .chart-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
- color:#4b5563;font-style:italic;font-size:.9rem;pointer-events:none}
-.diag{display:flex;flex-direction:column;gap:.5rem;margin:1rem 0}
-.flag{border-left:3px solid;border-radius:6px;padding:.6rem .9rem;background:#111827;font-size:.92rem}
-.flag.good{border-color:#10b981}.flag.watch{border-color:#fbbf24}.flag.gap{border-color:#f87171}
-.flag .tag{font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;font-weight:600;
- margin-right:.5rem}
-.flag.good .tag{color:#34d399}.flag.watch .tag{color:#fbbf24}.flag.gap .tag{color:#f87171}
-.rategrid{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1rem}
-@media(max-width:560px){.rategrid{grid-template-columns:1fr}}
-.reason{color:#9ca3af;font-size:.85rem}
-</style></head><body><div class="wrap">
-<h1>LeetCode 75</h1>
-<p class="sub">One problem a day. Solo first, debrief after. Missing a day costs a number, nothing else.</p>
+ color:var(--muted);font-size:1.05rem;text-align:center;padding:1rem}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:1.25rem}
+@media(max-width:720px){.grid2{grid-template-columns:1fr}}
 
-<div class="stats">
-  <div class="card"><div class="n" id="s-solved"></div><div class="l">solved / 75</div>
-    <div class="bar"><i id="s-bar"></i></div></div>
-  <div class="card"><div class="n" id="s-streak"></div><div class="l">day streak</div></div>
-  <div class="card"><div class="n" id="s-easy"></div><div class="l">easy</div></div>
-  <div class="card"><div class="n" id="s-medium"></div><div class="l">medium</div></div>
-  <div class="card"><div class="n" id="s-due"></div><div class="l">due for review</div></div>
+/* ---- tables ---- */
+details{margin-top:.85rem}
+summary{cursor:pointer;color:var(--s-blue);font-size:.95rem;padding:.3rem 0}
+:root[data-theme="light"] summary{color:#1a5fb4}
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:1rem;font-variant-numeric:tabular-nums}
+caption{text-align:left;color:var(--muted);font-size:.9rem;padding:.4rem 0}
+th{text-align:left;color:var(--ink-2);font-weight:700;padding:.55rem .7rem;
+ border-bottom:2px solid var(--border);white-space:nowrap}
+td{padding:.55rem .7rem;border-bottom:1px solid var(--grid)}
+tbody tr:hover td{background:var(--surface-2)}
+.tblcard{background:var(--surface);border:1px solid var(--border);border-radius:14px;
+ padding:.5rem 1rem 1rem;margin-bottom:1.25rem}
+.pill{display:inline-block;background:var(--surface-2);border:1px solid var(--border);
+ border-radius:99px;padding:.1rem .6rem;font-size:.85rem;color:var(--ink-2)}
+.easy{color:var(--good-ink);font-weight:600}.medium{color:var(--s-blue);font-weight:600}
+:root[data-theme="light"] .medium{color:#1a5fb4}
+.late{color:var(--gap-ink);font-weight:700}
+.empty{color:var(--muted);padding:.75rem 0}
+.reason{color:var(--ink-2)}
+.dots{letter-spacing:2px;font-size:1.1rem}
+.dots .on{color:var(--good-ink)} .dots .off{color:var(--axis)}
+.bars{display:inline-flex;align-items:center;gap:.5rem}
+.bars .track{height:12px;width:130px;background:var(--surface-2);border:1px solid var(--border);
+ border-radius:99px;overflow:hidden} .bars .track>i{display:block;height:100%;background:var(--good)}
+.mermaid{background:var(--surface);border:1px solid var(--border);border-radius:14px;
+ padding:1rem;overflow-x:auto;text-align:center}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+</style></head><body>
+
+<div class="bar"><div class="wrap">
+  <h1>LeetCode 75</h1>
+  <div class="ctrl"><span class="cl">Text size</span>
+    <button class="btn" id="tminus" aria-label="Decrease text size">A−</button>
+    <button class="btn" id="treset" aria-label="Reset text size">A</button>
+    <button class="btn" id="tplus" aria-label="Increase text size">A＋</button>
+  </div>
+  <div class="ctrl"><span class="cl">Theme</span>
+    <button class="btn" id="theme" aria-pressed="false" aria-label="Toggle light and dark theme">Dark</button>
+  </div>
+</div></div>
+
+<main class="wrap" id="main">
+<p class="lead">One problem a day. Solo first with the timer, debrief after. This page reads
+your <b>learning</b>, not just your solve count — how often you reach the optimal idea yourself,
+whether you spot the pattern before coding, and what to work on next. Every number waits until it
+has enough data to be honest.</p>
+
+<div class="next" id="next"></div>
+<div class="tiles" id="tiles"></div>
+
+<h2>The one number that matters most</h2>
+<p class="lead">In an interview, the test isn't "did you solve it" — it's "did you find the
+efficient idea yourself." This is the share of your recent solo attempts that reached the optimal
+approach <em>before</em> any help.</p>
+<div class="hero" id="hero-opt"></div>
+<div class="grid2">
+  <div class="chartbox"><h3>Optimal-first, over time</h3>
+    <div class="cwrap" role="img" aria-label="Line chart of optimal-first rate over recent solves. Numbers in the table below.">
+      <canvas id="c-opt" aria-hidden="true"></canvas><div class="chart-empty" id="e-opt"></div></div>
+    <details id="d-opt"><summary>Show these numbers as a table</summary>
+      <div class="scroll"><table id="t-opt"></table></div></details>
+  </div>
+  <div class="chartbox"><h3>Pattern recognition, over time</h3>
+    <div class="cwrap" role="img" aria-label="Line chart of pattern-recognition rate over recent solves. Numbers in the table below.">
+      <canvas id="c-rec" aria-hidden="true"></canvas><div class="chart-empty" id="e-rec"></div></div>
+    <details id="d-rec"><summary>Show these numbers as a table</summary>
+      <div class="scroll"><table id="t-rec"></table></div></details>
+  </div>
 </div>
-<div class="next">Next up: <b id="s-next"></b></div>
 
-<h2>Diagnosis — your read</h2>
+<h2>Your read right now</h2>
+<div class="guide"><dl>
+  <dt>What</dt><dd>A plain-language summary of what the numbers below are saying today.</dd>
+  <dt>Colour</dt><dd><b class="good-ink" style="color:var(--good-ink)">▲ Good</b> = keep doing it.
+    <b style="color:var(--watch-ink)">● Watch</b> = worth attention.
+    <b style="color:var(--gap-ink)">▼ Gap</b> = the thing to fix first.</dd>
+</dl></div>
 <div class="diag" id="diag"></div>
 
-<h2>Cognition — the interview signals</h2>
-<div class="rategrid">
-  <div class="chartbox"><h3>Optimal-first rate</h3>
-    <div class="cwrap"><canvas id="c-opt"></canvas>
-      <div class="chart-empty" id="e-opt"></div></div></div>
-  <div class="chartbox"><h3>Pattern recognition rate</h3>
-    <div class="cwrap"><canvas id="c-rec"></canvas>
-      <div class="chart-empty" id="e-rec"></div></div></div>
-</div>
-
-<h2>Needs attention</h2>
-<div id="attention"></div>
+<h2>Needs attention <span class="num">weakest first</span></h2>
+<p class="lead">Your solved problems, ranked by how much they still need work — low confidence,
+a failed solo attempt, a brute-force-only solution, or an overdue review. Start reviews here.</p>
+<div class="tblcard scroll"><table id="attention"><caption>Ranked most-to-least in need of a revisit.</caption></table></div>
 
 <h2>Recurring mistakes</h2>
-<div class="chartbox"><div class="cwrap" style="height:220px"><canvas id="c-mist"></canvas>
-  <div class="chart-empty" id="e-mist">no mistakes logged yet</div></div></div>
-
-<h2>Pattern mastery</h2>
-<div class="scroll"><table id="mastery"></table></div>
-
-<h2>Charts</h2>
-<div class="charts">
-  <div class="chartbox"><h3>Cumulative progress</h3>
-    <div class="cwrap"><canvas id="c-cum"></canvas>
-      <div class="chart-empty" id="e-cum">no problems solved yet</div></div></div>
-  <div class="chartbox"><h3>Difficulty</h3>
-    <div class="cwrap"><canvas id="c-diff"></canvas>
-      <div class="chart-empty" id="e-diff">nothing solved yet</div></div></div>
+<p class="lead">The bug categories you actually hit, counted. A tall bar isn't bad luck — it's a
+habit worth a targeted 30-second check before you run your code.</p>
+<div class="chartbox"><div class="cwrap short" role="img" aria-label="Bar chart of mistake counts by category. Numbers in the table below.">
+  <canvas id="c-mist" aria-hidden="true"></canvas><div class="chart-empty" id="e-mist">No mistakes logged yet.</div></div>
+  <details id="d-mist"><summary>Show these numbers as a table</summary>
+    <div class="scroll"><table id="t-mist"></table></div></details>
 </div>
-<div class="chartbox section-chart"><h3>Section completion</h3>
-  <div class="cwrap"><canvas id="c-sec"></canvas></div></div>
+
+<h2>Pattern mastery <span class="num">weakest first</span></h2>
+<p class="lead">Per pattern: how often you reached optimal, how often you recognised it, and your
+average confidence. Low rows are patterns you've technically solved but haven't truly internalised.</p>
+<div class="tblcard scroll"><table id="mastery"></table></div>
+
+<h2>Progress</h2>
+<p class="lead">How far through the 75 you are, and the easy/medium split. 53 of the 75 are
+Medium, so most days are the longer session — pace accordingly.</p>
+<div class="grid2">
+  <div class="chartbox"><h3>Solved over time</h3>
+    <div class="cwrap" role="img" aria-label="Cumulative solved count over time. Numbers in the table below.">
+      <canvas id="c-cum" aria-hidden="true"></canvas><div class="chart-empty" id="e-cum">Nothing solved yet.</div></div>
+    <details id="d-cum"><summary>Show these numbers as a table</summary>
+      <div class="scroll"><table id="t-cum"></table></div></details>
+  </div>
+  <div class="chartbox"><h3>Difficulty</h3>
+    <div class="cwrap" role="img" aria-label="Breakdown of solved easy, solved medium, and remaining problems. Numbers in the table below.">
+      <canvas id="c-diff" aria-hidden="true"></canvas><div class="chart-empty" id="e-diff">Nothing solved yet.</div></div>
+    <details id="d-diff"><summary>Show these numbers as a table</summary>
+      <div class="scroll"><table id="t-diff"></table></div></details>
+  </div>
+</div>
+
+<h2>Sections <span class="num">22 topics</span></h2>
+<p class="lead">Completion across the study plan's own 22 sections, in order. The dots show your
+average confidence where you've solved something.</p>
+<div class="chartbox"><div class="cwrap tall" role="img" aria-label="Bar chart of solved vs remaining problems per section. Numbers in the table below.">
+  <canvas id="c-sec" aria-hidden="true"></canvas></div></div>
+<div class="tblcard scroll"><table id="sections"></table></div>
 
 <h2>Review queue</h2>
+<p class="lead">Spaced repetition: each solved problem returns at +1 day, +7 days, +30 days
+(sooner if you were shaky). Clearing these matters more than a new problem — retention decays
+without them.</p>
 <div id="queue"></div>
 
-<h2>Mind map — section → pattern → problem</h2>
+<h2>Mind map <span class="num">section → pattern → problem</span></h2>
+<p class="lead">How the pieces connect. The middle layer — the pattern — is what transfers to an
+unseen interview question. Filled nodes are solved; ghosted ones are still ahead.</p>
 <pre class="mermaid">__MERMAID__</pre>
 
-<h2>Sections</h2>
-<div class="scroll"><table id="sections"></table></div>
-
 <h2>Solved log</h2>
-<div class="scroll"><div id="log"></div></div>
-</div>
+<div class="tblcard scroll"><table id="log"></table></div>
+</main>
+
 <script>
 const PROBLEMS = __PROBLEMS__;
 const STATS = __STATS__;
-
 const $ = id => document.getElementById(id);
 const lc = p => `https://leetcode.com/problems/${p.slug}/`;
 const notes = p => `solutions/${p.section}/${p.id}-${p.slug}/notes.md`;
-const due = PROBLEMS.filter(p => p.overdue !== null);
+const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const secName = s => s.slice(3).replace(/-/g, ' ');
+const confDots = c => { const n = Math.round(c);
+  return `<span class="dots" aria-label="${n} of 5">${'●'.repeat(n)}`.replace(/●/g,'<span class="on">●</span>')
+    + `${'○'.repeat(5-n)}`.replace(/○/g,'<span class="off">○</span>') + '</span>'; };
 
-$('s-solved').textContent = `${STATS.solved}/${STATS.total}`;
-$('s-bar').style.width = (100 * STATS.solved / STATS.total) + '%';
-$('s-streak').textContent = STATS.streak;
-$('s-easy').textContent = `${STATS.easy}/${STATS.easyTotal}`;
-$('s-medium').textContent = `${STATS.medium}/${STATS.mediumTotal}`;
-$('s-due').textContent = due.length;
-$('s-next').textContent = STATS.next;
+/* ---------- text size + theme controls ---------- */
+let scale = parseFloat(localStorage.getItem('lc75-scale') || '1');
+function applyScale(){ document.documentElement.style.setProperty('--scale', scale);
+  localStorage.setItem('lc75-scale', scale); }
+applyScale();
+$('tminus').onclick = () => { scale = Math.max(0.85, +(scale-0.1).toFixed(2)); applyScale(); redraw(); };
+$('tplus').onclick  = () => { scale = Math.min(1.6, +(scale+0.1).toFixed(2)); applyScale(); redraw(); };
+$('treset').onclick = () => { scale = 1; applyScale(); redraw(); };
 
-// diagnosis flags
-$('diag').innerHTML = (STATS.diagnosis || []).map(([lvl, text]) =>
-  `<div class="flag ${lvl}"><span class="tag">${lvl}</span>${text}</div>`).join('')
-  || '<p class="empty">No read yet.</p>';
+const prefLight = matchMedia('(prefers-color-scheme: light)').matches;
+let theme = localStorage.getItem('lc75-theme') || (prefLight ? 'light' : 'dark');
+function applyTheme(){ document.documentElement.setAttribute('data-theme', theme);
+  const b = $('theme'); b.textContent = theme === 'dark' ? 'Dark' : 'Light';
+  b.setAttribute('aria-pressed', theme === 'light'); localStorage.setItem('lc75-theme', theme); }
+applyTheme();
+$('theme').onclick = () => { theme = theme === 'dark' ? 'light' : 'dark'; applyTheme(); redraw(); };
 
-// attention list — weakest solved problems first
-const att = PROBLEMS.filter(p => p.solved && p.attention > 0)
-  .sort((a, b) => b.attention - a.attention).slice(0, 8);
+/* ---------- static content ---------- */
+$('next').innerHTML = `Next up: <b>${STATS.next}</b>`;
+
+const tiles = [
+  {v:`${STATS.solved}/${STATS.total}`, k:'solved', bar:100*STATS.solved/STATS.total},
+  {v:STATS.recognition ? Math.round(100*STATS.recognition.rate)+'%' : '—', k:'pattern recognition'},
+  {v:STATS.streak, k:'day streak'},
+  {v:PROBLEMS.filter(p=>p.overdue!==null).length, k:'reviews due'},
+];
+$('tiles').innerHTML = tiles.map(t => `<div class="tile"><div class="v">${t.v}</div>
+  <div class="k">${t.k}</div>${t.bar!=null?`<div class="track"><i style="width:${t.bar}%"></i></div>`:''}</div>`).join('');
+
+// hero — optimal first
+(function(){
+  const o = STATS.optimalFirst;
+  if (!o){ const need = STATS.minRateN - STATS.solved;
+    $('hero-opt').innerHTML = `<div class="fig none">not yet</div><div class="side">
+      <div class="t">Need ${need} more solve${need!==1?'s':''}</div>
+      <div class="d">A rate over ${STATS.solved} problem${STATS.solved!==1?'s':''} would be noise.
+      This switches on at ${STATS.minRateN} solved.</div></div>`; return; }
+  const pct = Math.round(100*o.rate);
+  const lvl = pct>=60 ? 'good' : pct>=35 ? 'watch' : 'gap';
+  const msg = pct>=60 ? "You're finding the efficient idea yourself. That's the interview skill."
+    : "You reach working code but often need help to optimise. Closing this is the priority.";
+  $('hero-opt').innerHTML = `<div class="fig ${lvl}">${pct}%</div><div class="side">
+    <div class="t">of your last ${o.n} solo attempts reached optimal first</div>
+    <div class="d">${msg}</div></div>`;
+})();
+
+// diagnosis
+const ICON = {good:'▲', watch:'●', gap:'▼'};
+$('diag').innerHTML = (STATS.diagnosis||[]).map(([lvl,obs,act]) =>
+  `<div class="flag ${lvl}"><div class="hd"><span class="ic">${ICON[lvl]}</span>
+     <span class="lv">${lvl}</span></div>
+   <div class="obs">${obs}</div>${act?`<div class="act"><b>Do this:</b> ${act}</div>`:''}</div>`
+).join('') || '<p class="empty">No read yet.</p>';
+
+// attention
+const att = PROBLEMS.filter(p=>p.solved && p.attention>0)
+  .sort((a,b)=>b.attention-a.attention).slice(0,8);
 $('attention').innerHTML = att.length
-  ? '<div class="scroll"><table><tr><th>#</th><th>Problem</th><th>Why</th>' +
-    '<th>Pattern</th><th>Notes</th></tr>' +
-    att.map(p => `<tr><td>${p.id}</td>
-      <td><a href="${lc(p)}" target="_blank">${p.title}</a></td>
-      <td class="reason">${p.reason}</td>
-      <td><span class="pill">${p.pattern || '—'}</span></td>
-      <td><a href="${notes(p)}">notes</a></td></tr>`).join('') + '</table></div>'
-  : '<p class="empty">Nothing flagged — either too early, or everything solid.</p>';
+  ? '<thead><tr><th>#</th><th>Problem</th><th>Why it needs work</th><th>Pattern</th><th>Notes</th></tr></thead><tbody>'
+    + att.map(p=>`<tr><td>${p.id}</td>
+      <td><a href="${lc(p)}" target="_blank" rel="noopener">${p.title}</a></td>
+      <td class="reason">${p.reason}</td><td><span class="pill">${p.pattern||'—'}</span></td>
+      <td><a href="${notes(p)}">notes</a></td></tr>`).join('') + '</tbody>'
+  : '<tbody><tr><td class="empty">Nothing flagged — either too early, or everything is solid.</td></tr></tbody>';
 
-// pattern mastery table
-const pm = STATS.patternMastery || [];
+// pattern mastery
+const pm = STATS.patternMastery||[];
 $('mastery').innerHTML = pm.length
-  ? '<tr><th>Pattern</th><th>Solved</th><th>Optimal-first</th><th>Recognized</th><th>Avg conf</th></tr>' +
-    pm.map(r => `<tr><td>${r.pattern}</td><td>${r.n}</td>
-      <td>${r.optimal}%</td><td>${r.recog}%</td>
-      <td class="dots">${'●'.repeat(Math.round(r.conf)) + '○'.repeat(5 - Math.round(r.conf))}</td></tr>`
-    ).join('')
-  : '<tr><td class="empty">No patterns logged yet.</td></tr>';
+  ? '<thead><tr><th>Pattern</th><th>Solved</th><th>Optimal-first</th><th>Recognised</th><th>Avg confidence</th></tr></thead><tbody>'
+    + pm.map(r=>`<tr><td>${r.pattern}</td><td>${r.n}</td><td>${r.optimal}%</td>
+      <td>${r.recog}%</td><td>${confDots(r.conf)}</td></tr>`).join('') + '</tbody>'
+  : '<tbody><tr><td class="empty">No patterns logged yet.</td></tr></tbody>';
 
-if (!due.length) {
-  $('queue').innerHTML = '<p class="empty">Nothing due. Do the next new problem.</p>';
-} else {
-  due.sort((a, b) => b.overdue - a.overdue);
-  $('queue').innerHTML = '<div class="scroll"><table><tr><th>#</th><th>Problem</th>' +
-    '<th>Pattern</th><th>Due</th><th>Notes</th></tr>' +
-    due.map(p => `<tr><td>${p.id}</td>
-      <td><a href="${lc(p)}" target="_blank">${p.title}</a></td>
-      <td><span class="pill">${p.pattern || '—'}</span></td>
-      <td class="${p.overdue > 0 ? 'late' : ''}">${p.overdue > 0 ? p.overdue + 'd overdue' : 'today'}</td>
-      <td><a href="${notes(p)}">notes</a></td></tr>`).join('') + '</table></div>';
+// sections table
+const secs = [...new Set(PROBLEMS.map(p=>p.section))];
+$('sections').innerHTML = '<thead><tr><th>Section</th><th>Progress</th><th></th><th>Avg confidence</th></tr></thead><tbody>'
+  + secs.map(s=>{ const m=PROBLEMS.filter(p=>p.section===s), d=m.filter(p=>p.solved);
+    const c=d.length?d.reduce((a,p)=>a+p.confidence,0)/d.length:0;
+    return `<tr><td>${secName(s)}</td>
+      <td><span class="bars"><span class="track"><i style="width:${100*d.length/m.length}%"></i></span></span></td>
+      <td>${d.length}/${m.length}</td><td>${c?confDots(c):'<span class="empty">—</span>'}</td></tr>`;
+  }).join('') + '</tbody>';
+
+// review queue
+const due = PROBLEMS.filter(p=>p.overdue!==null).sort((a,b)=>b.overdue-a.overdue);
+$('queue').innerHTML = due.length
+  ? '<div class="tblcard scroll"><table><thead><tr><th>#</th><th>Problem</th><th>Pattern</th><th>Due</th><th>Notes</th></tr></thead><tbody>'
+    + due.map(p=>`<tr><td>${p.id}</td>
+      <td><a href="${lc(p)}" target="_blank" rel="noopener">${p.title}</a></td>
+      <td><span class="pill">${p.pattern||'—'}</span></td>
+      <td class="${p.overdue>0?'late':''}">${p.overdue>0?p.overdue+' days overdue':'today'}</td>
+      <td><a href="${notes(p)}">notes</a></td></tr>`).join('') + '</tbody></table></div>'
+  : '<p class="empty">Nothing due. Do the next new problem.</p>';
+
+// solved log
+const log = PROBLEMS.filter(p=>p.solved).sort((a,b)=>b.date.localeCompare(a.date));
+$('log').innerHTML = log.length
+  ? '<thead><tr><th>Date</th><th>#</th><th>Problem</th><th>Diff</th><th>Solo</th><th>Approach</th><th>Min</th><th>Pattern</th><th>Notes</th></tr></thead><tbody>'
+    + log.map(p=>`<tr><td>${p.date}</td><td>${p.id}</td>
+      <td><a href="${lc(p)}" target="_blank" rel="noopener">${p.title}</a></td>
+      <td class="${p.diff}">${p.diff}</td><td>${p.solo}</td><td>${p.approach||'—'}</td>
+      <td>${p.minutes}</td><td><span class="pill">${p.pattern||'—'}</span></td>
+      <td><a href="${notes(p)}">notes</a></td></tr>`).join('') + '</tbody>'
+  : '<tbody><tr><td class="empty">Nothing yet. Day 1 is 1768. Merge Strings Alternately.</td></tr></tbody>';
+
+/* ---------- charts (theme + size aware; rebuilt on any control change) ---------- */
+let charts = [];
+function fillTable(id, head, rows){
+  $(id).innerHTML = rows.length
+    ? '<thead><tr>'+head.map(h=>`<th>${h}</th>`).join('')+'</tr></thead><tbody>'
+      + rows.map(r=>'<tr>'+r.map(c=>`<td>${c}</td>`).join('')+'</tr>').join('') + '</tbody>'
+    : '<tbody><tr><td class="empty">No data yet.</td></tr></tbody>';
 }
+function need(id, txt){ const e=$(id); if(e) e.textContent = txt; }
 
-const secs = [...new Set(PROBLEMS.map(p => p.section))];
-$('sections').innerHTML = '<tr><th>Section</th><th>Progress</th><th></th><th>Confidence</th></tr>' +
-  secs.map(s => {
-    const m = PROBLEMS.filter(p => p.section === s);
-    const d = m.filter(p => p.solved);
-    const c = d.length ? (d.reduce((a, p) => a + p.confidence, 0) / d.length) : 0;
-    return `<tr><td>${s.slice(3).replace(/-/g, ' ')}</td>
-      <td><span class="mini"><i style="width:${100 * d.length / m.length}%"></i></span></td>
-      <td>${d.length}/${m.length}</td>
-      <td class="dots">${c ? '●'.repeat(Math.round(c)) + '○'.repeat(5 - Math.round(c)) : '—'}</td></tr>`;
-  }).join('');
+function draw(){
+  charts.forEach(c=>c.destroy()); charts=[];
+  const ink=cssv('--ink-2'), muted=cssv('--muted'), grid=cssv('--grid');
+  const blue=cssv('--s-blue'), aqua=cssv('--s-aqua'), violet=cssv('--s-violet'),
+        gray=cssv('--s-gray'), good=cssv('--good'), gap=cssv('--gap');
+  Chart.defaults.color = ink;
+  Chart.defaults.borderColor = grid;
+  Chart.defaults.font.family = 'system-ui, sans-serif';
+  Chart.defaults.font.size = Math.round(14 * scale);
+  Chart.defaults.animation = false;
+  const pctScale = {min:0,max:100,ticks:{callback:v=>v+'%'},grid:{color:grid}};
+  const solved = PROBLEMS.filter(p=>p.solved).sort((a,b)=>a.date.localeCompare(b.date));
 
-const solved = PROBLEMS.filter(p => p.solved).sort((a, b) => b.date.localeCompare(a.date));
-$('log').innerHTML = solved.length
-  ? '<table><tr><th>Date</th><th>#</th><th>Problem</th><th>Diff</th><th>Solo</th>' +
-    '<th>Min</th><th>Pattern</th><th>Notes</th></tr>' +
-    solved.map(p => `<tr><td>${p.date}</td><td>${p.id}</td>
-      <td><a href="${lc(p)}" target="_blank">${p.title}</a></td>
-      <td class="${p.diff}">${p.diff}</td><td>${p.solo}</td><td>${p.minutes}</td>
-      <td><span class="pill">${p.pattern || '—'}</span></td>
-      <td><a href="${notes(p)}">notes</a></td></tr>`).join('') + '</table>'
-  : '<p class="empty">Nothing yet. Day 1 is 1768. Merge Strings Alternately.</p>';
-
-// ---- charts ----
-Chart.defaults.color = '#9ca3af';
-Chart.defaults.borderColor = '#1f2937';
-Chart.defaults.font.family = 'ui-sans-serif, system-ui, sans-serif';
-Chart.defaults.animation = false;  // static dashboard — no need to redraw every frame
-const GREEN = '#10b981', AMBER = '#fbbf24', GHOST = '#1f2937';
-
-const solvedChron = PROBLEMS.filter(p => p.solved).sort((a, b) => a.date.localeCompare(b.date));
-
-// 1. cumulative progress — running total by date
-if (solvedChron.length) {
-  $('e-cum').style.display = 'none';
-  const dates = [...new Set(solvedChron.map(p => p.date))];
-  let run = 0;
-  const cum = dates.map(d => run += solvedChron.filter(p => p.date === d).length);
-  new Chart($('c-cum'), {
-    type: 'line',
-    data: {labels: dates, datasets: [{
-      data: cum, borderColor: GREEN, backgroundColor: 'rgba(16,185,129,.15)',
-      fill: true, tension: .25, pointRadius: 3, pointBackgroundColor: GREEN}]},
-    options: {maintainAspectRatio: false, plugins: {legend: {display: false}},
-      scales: {y: {beginAtZero: true, suggestedMax: Math.max(5, ...cum), ticks: {precision: 0}}}}
-  });
-}
-
-// 2. difficulty donut — solved easy / solved medium / remaining
-if (STATS.solved) {
-  $('e-diff').style.display = 'none';
-  new Chart($('c-diff'), {
-    type: 'doughnut',
-    data: {labels: ['Easy', 'Medium', 'Left'],
-      datasets: [{data: [STATS.easy, STATS.medium, STATS.total - STATS.solved],
-        backgroundColor: [GREEN, AMBER, GHOST], borderColor: '#0d1220', borderWidth: 2}]},
-    options: {maintainAspectRatio: false, cutout: '62%',
-      plugins: {legend: {position: 'bottom', labels: {boxWidth: 12}}}}
-  });
-}
-
-// 3. section completion — solved stacked over remaining, one bar per section
-{
-  const secs = [...new Set(PROBLEMS.map(p => p.section))];
-  const label = s => s.slice(3).replace(/-/g, ' ');
-  const done = secs.map(s => PROBLEMS.filter(p => p.section === s && p.solved).length);
-  const tot = secs.map(s => PROBLEMS.filter(p => p.section === s).length);
-  new Chart($('c-sec'), {
-    type: 'bar',
-    data: {labels: secs.map(label), datasets: [
-      {label: 'solved', data: done, backgroundColor: GREEN},
-      {label: 'remaining', data: tot.map((t, i) => t - done[i]), backgroundColor: GHOST}]},
-    options: {maintainAspectRatio: false, indexAxis: 'y',
-      scales: {x: {stacked: true, ticks: {precision: 0}}, y: {stacked: true}},
-      plugins: {legend: {position: 'top', labels: {boxWidth: 12}}}}
-  });
-}
-
-// 4 & 5. cognition trend lines — only when enough data, else a "need k more" note
-const cs = STATS.cognitionSeries || {labels: []};
-function trendLine(canvasId, emptyId, series, colour) {
-  const need = STATS.minRateN - STATS.solved;
-  if (!series || !series.length) {
-    $(emptyId).textContent = need > 0
-      ? `need ${need} more solve${need > 1 ? 's' : ''} before this is meaningful`
-      : 'not enough data yet';
-    return;
+  // cumulative
+  if (solved.length){ $('e-cum').style.display='none';
+    const dates=[...new Set(solved.map(p=>p.date))]; let run=0;
+    const cum=dates.map(d=>run+=solved.filter(p=>p.date===d).length);
+    charts.push(new Chart($('c-cum'),{type:'line',
+      data:{labels:dates,datasets:[{data:cum,borderColor:blue,backgroundColor:blue+'22',
+        fill:true,tension:.25,pointRadius:4,pointBackgroundColor:blue,borderWidth:2}]},
+      options:{maintainAspectRatio:false,plugins:{legend:{display:false}},
+        scales:{y:{beginAtZero:true,ticks:{precision:0},grid:{color:grid}},x:{grid:{color:grid}}}}}));
+    fillTable('t-cum',['Date','Total solved'],dates.map((d,i)=>[d,cum[i]]));
   }
-  $(emptyId).style.display = 'none';
-  new Chart($(canvasId), {
-    type: 'line',
-    data: {labels: cs.labels, datasets: [{
-      data: series, borderColor: colour, backgroundColor: colour + '26',
-      fill: true, tension: .3, pointRadius: 2}]},
-    options: {maintainAspectRatio: false, plugins: {legend: {display: false}},
-      scales: {y: {min: 0, max: 100, ticks: {callback: v => v + '%'}}}}
-  });
-}
-trendLine('c-opt', 'e-opt', cs.optimal, '#34d399');
-trendLine('c-rec', 'e-rec', cs.recognition, '#818cf8');
 
-// 6. mistake taxonomy — horizontal bar
-const mist = STATS.mistakes || {};
-const mkeys = Object.keys(mist);
-if (mkeys.length) {
-  $('e-mist').style.display = 'none';
-  new Chart($('c-mist'), {
-    type: 'bar',
-    data: {labels: mkeys, datasets: [{data: mkeys.map(k => mist[k]),
-      backgroundColor: '#f87171'}]},
-    options: {maintainAspectRatio: false, indexAxis: 'y',
-      plugins: {legend: {display: false}}, scales: {x: {ticks: {precision: 0}}}}
-  });
+  // difficulty — horizontal stacked bar w/ labels + table
+  if (STATS.solved){ $('e-diff').style.display='none';
+    charts.push(new Chart($('c-diff'),{type:'bar',
+      data:{labels:['Problems'],datasets:[
+        {label:'Easy solved',data:[STATS.easy],backgroundColor:aqua},
+        {label:'Medium solved',data:[STATS.medium],backgroundColor:blue},
+        {label:'Remaining',data:[STATS.total-STATS.solved],backgroundColor:gray}]},
+      options:{indexAxis:'y',maintainAspectRatio:false,
+        scales:{x:{stacked:true,grid:{color:grid},ticks:{precision:0}},y:{stacked:true,grid:{display:false}}},
+        plugins:{legend:{position:'bottom',labels:{boxWidth:14,padding:14}}}}}));
+    fillTable('t-diff',['Group','Count'],[
+      ['Easy solved',`${STATS.easy} of ${STATS.easyTotal}`],
+      ['Medium solved',`${STATS.medium} of ${STATS.mediumTotal}`],
+      ['Remaining',STATS.total-STATS.solved]]);
+  }
+
+  // section completion
+  { const done=secs.map(s=>PROBLEMS.filter(p=>p.section===s&&p.solved).length);
+    const tot=secs.map(s=>PROBLEMS.filter(p=>p.section===s).length);
+    charts.push(new Chart($('c-sec'),{type:'bar',
+      data:{labels:secs.map(secName),datasets:[
+        {label:'solved',data:done,backgroundColor:good},
+        {label:'remaining',data:tot.map((t,i)=>t-done[i]),backgroundColor:gray}]},
+      options:{indexAxis:'y',maintainAspectRatio:false,
+        scales:{x:{stacked:true,grid:{color:grid},ticks:{precision:0}},y:{stacked:true,grid:{display:false}}},
+        plugins:{legend:{position:'top',labels:{boxWidth:14,padding:14}}}}}));
+  }
+
+  // cognition trend lines
+  const cs = STATS.cognitionSeries||{labels:[]};
+  function trendLine(cid,eid,tid,series,colour,label){
+    const gap2 = STATS.minRateN - STATS.solved;
+    if(!series||!series.length){
+      need(eid, gap2>0 ? `Needs ${gap2} more solve${gap2!==1?'s':''} before this means anything.`
+        : 'Not enough data yet.');
+      fillTable(tid,['Date',label],[]); return; }
+    $(eid).style.display='none';
+    charts.push(new Chart($(cid),{type:'line',
+      data:{labels:cs.labels,datasets:[{data:series,borderColor:colour,backgroundColor:colour+'22',
+        fill:true,tension:.3,pointRadius:3,borderWidth:2}]},
+      options:{maintainAspectRatio:false,plugins:{legend:{display:false}},
+        scales:{y:pctScale,x:{grid:{color:grid}}}}}));
+    fillTable(tid,['Date',label],cs.labels.map((d,i)=>[d,series[i]+'%']));
+  }
+  trendLine('c-opt','e-opt','t-opt',cs.optimal,cssv('--good'),'Optimal-first');
+  trendLine('c-rec','e-rec','t-rec',cs.recognition,violet,'Recognised');
+
+  // mistakes
+  const mist=STATS.mistakes||{}, mk=Object.keys(mist);
+  if(mk.length){ $('e-mist').style.display='none';
+    charts.push(new Chart($('c-mist'),{type:'bar',
+      data:{labels:mk,datasets:[{data:mk.map(k=>mist[k]),backgroundColor:gap}]},
+      options:{indexAxis:'y',maintainAspectRatio:false,plugins:{legend:{display:false}},
+        scales:{x:{ticks:{precision:0},grid:{color:grid}},y:{grid:{display:false}}}}}));
+    fillTable('t-mist',['Mistake','Count'],mk.map(k=>[k,mist[k]]));
+  } else { fillTable('t-mist',['Mistake','Count'],[]); }
 }
 
-mermaid.initialize({startOnLoad: true, theme: 'dark',
-  themeVariables: {background: '#0d1220', fontSize: '13px'}});
+let mermaidReady=false;
+function redraw(){ draw();
+  // mermaid theme follows the toggle
+  if(mermaidReady){ /* re-render handled below on toggle */ }
+}
+function drawMermaid(){
+  const dark = theme==='dark';
+  document.querySelectorAll('.mermaid').forEach(el=>{ if(el.dataset.src) el.textContent=el.dataset.src; el.removeAttribute('data-processed'); });
+  mermaid.initialize({startOnLoad:false, theme: dark?'dark':'neutral',
+    themeVariables:{fontSize:'14px'}});
+  mermaid.run({querySelector:'.mermaid'}); mermaidReady=true;
+}
+document.querySelectorAll('.mermaid').forEach(el=>el.dataset.src=el.textContent);
+draw();
+drawMermaid();
+// redraw mermaid on theme change too
+const _theme = $('theme').onclick;
+$('theme').onclick = () => { _theme(); drawMermaid(); };
 </script></body></html>
 """
 
@@ -832,10 +1057,13 @@ def demo():
     ])
     assert pm[0]["pattern"] == "weak", pm
 
-    # diagnosis: silent-ish baseline below MIN_RATE_N, real flags above
-    assert diagnosis([mk(i) for i in range(3)], [])[0][0] == "watch"
+    # diagnosis: silent-ish baseline below MIN_RATE_N, real flags above.
+    # Each flag is (level, observation, action) — action must be present.
+    base = diagnosis([mk(i) for i in range(3)], [])
+    assert base[0][0] == "watch" and len(base[0]) == 3 and base[0][2]
     flags = diagnosis([mk(i) for i in range(8)], [])
-    assert any("Optimal-first" in f[1] for f in flags)
+    assert any("optimal idea on your own" in f[1] for f in flags)
+    assert all(len(f) == 3 and f[2] for f in flags)  # every flag has an action
 
     # build() surfaces the eval fields onto stats and problems
     _, st2 = build([mk(i) for i in range(6)], t)
