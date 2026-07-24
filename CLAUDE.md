@@ -48,18 +48,25 @@ These two fields measure **different axes** and must be scored **independently**
 the same question; do not let one decide the other.
 
 - **`recognized`** — did they identify the right pattern/approach in the *think-phase, before
-  coding*? **Score this ONLY from the user's think-note** (the "Before coding I reached for"
-  line in `notes.md`, or whatever they paste at debrief). The user solves alone on LeetCode — I
-  see only their final code and the problem, and code shows the *result*, not the thought at
+  coding*? **Score this ONLY from the frozen top half of their think-note** (`templates/think-log.md`
+  — the "approach I'm reaching for" line, written before any code). The user solves alone on
+  LeetCode; I see only final code and the problem, which show the *result*, not the thought at
   minute 3. I cannot read recognition backward from a finished solution, and must not try.
-  - `self` — their note shows they named the correct pattern/approach unprompted, before coding.
-  - `hinted` — their note shows they got there only after a LeetCode hint, editorial, a search,
-    or mid-coding.
-  - `missed` — their note shows they never identified it.
-  - `unknown` — **no think-note provided.** Record this, don't guess. It's excluded from the
-    recognition rate (honest blank), and I should ask them to log a think-note next time.
-  Also: the note's "Did I look at anything?" line governs `solo` and `approach` honesty — if they
-  used a hint/editorial, it is not a clean solo solve, regardless of how good the final code is.
+  **Grade it strictly, and round ties DOWN** — an over-generous "self" quietly destroys the
+  metric, and the user has explicitly asked for a hard grade:
+  - `self` — the frozen note names the **actually-correct** pattern/approach, unprompted, before
+    coding. "Some kind of loop" or a vague gesture is NOT self. A named-but-wrong pattern is not self.
+  - `hinted` — reached it only after a LeetCode hint/editorial/search, or only mid-coding, or the
+    note is close-but-not-right.
+  - `missed` — never had it; the note says "none/flailing" or names nothing relevant.
+  - `unknown` — **no think-note provided.** Record this, don't guess; excluded from the rate.
+    Ask for a think-note next time (one line).
+  State the grade WITH its evidence, quoting their frozen line: "recognized: hinted — your note
+  said 'nested loops', the intended pattern was two-pointers." No hand-waving.
+  The note's "Did I look at anything?" line governs `solo`/`approach` honesty: any hint/editorial
+  before reaching the idea caps `recognized` at `hinted` and makes it not a clean solo solve,
+  regardless of how good the final code is. If the note contradicts the code (claims a plan the
+  code doesn't reflect), trust the code and say so.
 - **`approach`** — the quality of the solution they actually produced **solo**, regardless of how
   they found it:
   - `optimal` — reached the best-known time AND space with no prompting.

@@ -3,18 +3,13 @@
 Section: <nn-section>  |  Pattern: <filled during debrief>  |  Date: <YYYY-MM-DD>
 Solo result: solved / timeout / wrong-answer  |  Time used: <n> min
 
-## ⭐ THINK-LOG — write this on LeetCode DURING the timer, before you code
+## ⭐ THINK-LOG
 <!--
-This is the one thing Claude cannot see from your code. Your finished solution shows the
-RESULT, not what you were thinking at minute 3. Without this note, `recognized` is scored
-"unknown" and left out of your recognition rate — not guessed. Three quick lines is enough;
-jot them in a scratch file or on paper while you solve, and paste them at /debrief.
+Capture this in `templates/think-log.md` (copy it per problem) DURING the timer — the top half
+BEFORE you code, then frozen. Paste the filled think-log in here at debrief. It's the only thing
+that lets recognition be scored; without it, `recognized` is "unknown", not guessed.
 -->
-- **Restate (1 line):**
-- **Before coding I reached for:** <the pattern/approach you thought of, e.g. "two pointers
-  because the array is sorted" — or "no idea, just started trying things">
-- **Did I look at anything?** <no / LeetCode hint / editorial / searched> — be honest; this
-  decides whether it counts as solo.
+<paste your frozen think-log here>
 
 ## Where I got stuck
 
