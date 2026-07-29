@@ -610,6 +610,16 @@ def diagnosis(solved, problems):
     return flags
 
 
+def _mm(s):
+    """Make a user string safe as a mermaid node label. The mermaid diagram is emitted
+    into a <pre> that is NOT routed through _js(), so a raw `pattern` like
+    `</pre><img onerror=...>` would break out into live DOM. Labels are short, so
+    aggressively swap every HTML- or mermaid-significant char for a harmless twin."""
+    return (str(s).replace("&", "+").replace("<", "(").replace(">", ")")
+            .replace('"', "'").replace("[", "(").replace("]", ")")
+            .replace("{", "(").replace("}", ")").replace("|", "/").replace("`", "'"))
+
+
 def mermaid(problems):
     """Section -> Pattern -> Problem. Only solved problems get a pattern node;
     unsolved sections still appear so the map shows the whole territory."""
@@ -619,12 +629,12 @@ def mermaid(problems):
         sid = f"S{si}"
         members = [p for p in problems if p["section"] == sec]
         done = sum(1 for p in members if p["solved"])
-        lines.append(f'  {sid}["{sec[3:].replace("-", " ")}<br/>{done}/{len(members)}"]')
+        lines.append(f'  {sid}["{_mm(sec[3:].replace("-", " "))}<br/>{done}/{len(members)}"]')
         lines.append(f"  class {sid} {'secdone' if done == len(members) else 'sec'}")
         patterns = list(dict.fromkeys(p["pattern"] for p in members if p["solved"] and p["pattern"]))
         for pi, pat in enumerate(patterns):
             pid_ = f"P{si}_{pi}"
-            lines.append(f'  {pid_}("{pat}")')
+            lines.append(f'  {pid_}("{_mm(pat)}")')
             lines.append(f"  class {pid_} pat")
             lines.append(f"  {sid} --> {pid_}")
             for p in members:
@@ -899,6 +909,9 @@ unseen interview question. Filled nodes are solved; ghosted ones are still ahead
 const PROBLEMS = __PROBLEMS__;
 const STATS = __STATS__;
 const $ = id => document.getElementById(id);
+// HTML-escape every user-authored string before it goes into innerHTML (pattern is free text)
+const esc = s => String(s==null?'':s).replace(/[&<>"']/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const lc = p => `https://leetcode.com/problems/${p.slug}/`;
 const notes = p => `solutions/${p.section}/${p.id}-${p.slug}/notes.md`;
 const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
@@ -969,8 +982,8 @@ const att = PROBLEMS.filter(p=>p.solved && p.attention>0)
 $('attention').innerHTML = att.length
   ? '<thead><tr><th>#</th><th>Problem</th><th>Why it needs work</th><th>Pattern</th><th>Notes</th></tr></thead><tbody>'
     + att.map(p=>`<tr><td>${p.id}</td>
-      <td><a href="${lc(p)}" target="_blank" rel="noopener">${p.title}</a></td>
-      <td class="reason">${p.reason}</td><td><span class="pill">${p.pattern||'—'}</span></td>
+      <td><a href="${lc(p)}" target="_blank" rel="noopener">${esc(p.title)}</a></td>
+      <td class="reason">${esc(p.reason)}</td><td><span class="pill">${esc(p.pattern||'—')}</span></td>
       <td><a href="${notes(p)}">notes</a></td></tr>`).join('') + '</tbody>'
   : '<tbody><tr><td class="empty">Nothing flagged — either too early, or everything is solid.</td></tr></tbody>';
 
@@ -978,7 +991,7 @@ $('attention').innerHTML = att.length
 const pm = STATS.patternMastery||[];
 $('mastery').innerHTML = pm.length
   ? '<thead><tr><th>Pattern</th><th class="num">Solved</th><th class="num">Optimal-first</th><th class="num">Recognised</th><th>Avg confidence</th></tr></thead><tbody>'
-    + pm.map(r=>`<tr><td>${r.pattern}</td><td class="num">${r.n}</td><td class="num">${r.optimal}%</td>
+    + pm.map(r=>`<tr><td>${esc(r.pattern)}</td><td class="num">${r.n}</td><td class="num">${r.optimal}%</td>
       <td class="num">${r.recog==null?'—':r.recog+'%'}</td><td>${confDots(r.conf)}</td></tr>`).join('') + '</tbody>'
   : '<tbody><tr><td class="empty">No patterns logged yet.</td></tr></tbody>';
 
@@ -987,7 +1000,7 @@ const secs = [...new Set(PROBLEMS.map(p=>p.section))];
 $('sections').innerHTML = '<thead><tr><th>Section</th><th>Progress</th><th class="num">Done</th><th>Avg confidence</th></tr></thead><tbody>'
   + secs.map(s=>{ const m=PROBLEMS.filter(p=>p.section===s), d=m.filter(p=>p.solved);
     const c=d.length?d.reduce((a,p)=>a+p.confidence,0)/d.length:0;
-    return `<tr><td>${secName(s)}</td>
+    return `<tr><td>${esc(secName(s))}</td>
       <td><span class="bars"><span class="track"><i style="width:${100*d.length/m.length}%"></i></span></span></td>
       <td class="num">${d.length}/${m.length}</td><td>${c?confDots(c):'<span class="empty">—</span>'}</td></tr>`;
   }).join('') + '</tbody>';
@@ -1002,8 +1015,8 @@ const due = PROBLEMS.filter(p=>p.overdue!==null).sort((a,b)=>b.overdue-a.overdue
 $('queue').innerHTML = due.length
   ? '<div class="tblcard scroll"><table><thead><tr><th>#</th><th>Problem</th><th>Pattern</th><th>Last review</th><th>Due</th><th>Notes</th></tr></thead><tbody>'
     + due.map(p=>`<tr><td>${p.id}</td>
-      <td><a href="${lc(p)}" target="_blank" rel="noopener">${p.title}</a></td>
-      <td><span class="pill">${p.pattern||'—'}</span></td>
+      <td><a href="${lc(p)}" target="_blank" rel="noopener">${esc(p.title)}</a></td>
+      <td><span class="pill">${esc(p.pattern||'—')}</span></td>
       <td>${lastReview(p)}</td>
       <td class="${p.overdue>0?'late':''}">${p.overdue>0?p.overdue+' days overdue':'today'}</td>
       <td><a href="${notes(p)}">notes</a></td></tr>`).join('') + '</tbody></table></div>'
@@ -1014,9 +1027,9 @@ const log = PROBLEMS.filter(p=>p.solved).sort((a,b)=>b.date.localeCompare(a.date
 $('log').innerHTML = log.length
   ? '<thead><tr><th>Date</th><th>#</th><th>Problem</th><th>Diff</th><th>Solo</th><th>Approach</th><th>Min</th><th>Pattern</th><th>Notes</th></tr></thead><tbody>'
     + log.map(p=>`<tr><td>${p.date}</td><td>${p.id}</td>
-      <td><a href="${lc(p)}" target="_blank" rel="noopener">${p.title}</a></td>
-      <td class="${p.diff}">${p.diff}</td><td>${p.solo}</td><td>${p.approach||'—'}</td>
-      <td>${p.minutes}</td><td><span class="pill">${p.pattern||'—'}</span></td>
+      <td><a href="${lc(p)}" target="_blank" rel="noopener">${esc(p.title)}</a></td>
+      <td class="${p.diff}">${p.diff}</td><td>${esc(p.solo)}</td><td>${esc(p.approach||'—')}</td>
+      <td>${p.minutes}</td><td><span class="pill">${esc(p.pattern||'—')}</span></td>
       <td><a href="${notes(p)}">notes</a></td></tr>`).join('') + '</tbody>'
   : '<tbody><tr><td class="empty">Nothing yet. Day 1 is 1768. Merge Strings Alternately.</td></tr></tbody>';
 
@@ -1027,7 +1040,7 @@ function fillTable(id, head, rows){
   const cls = i => i === 0 ? '' : ' class="num"';
   $(id).innerHTML = rows.length
     ? '<thead><tr>'+head.map((h,i)=>`<th${cls(i)}>${h}</th>`).join('')+'</tr></thead><tbody>'
-      + rows.map(r=>'<tr>'+r.map((c,i)=>`<td${cls(i)}>${c}</td>`).join('')+'</tr>').join('') + '</tbody>'
+      + rows.map(r=>'<tr>'+r.map((c,i)=>`<td${cls(i)}>${esc(c)}</td>`).join('')+'</tr>').join('') + '</tbody>'
     : '<tbody><tr><td class="empty">No data yet.</td></tr></tbody>';
 }
 function need(id, txt){ const e=$(id); if(e) e.textContent = txt; }
@@ -1217,9 +1230,9 @@ def demo():
     ids = [p[0] for p in SEED]
 
     def mk(i, approach="optimal", recognized="self", mistakes=None, conf=4,
-           solo="solved", minutes=30, reviews=None):
+           solo="solved", minutes=30, reviews=None, pattern="p"):
         return {"id": ids[i], "date": f"2026-08-{i + 1:02d}", "confidence": conf,
-                "pattern": "p", "minutes": minutes, "solo": solo, "approach": approach,
+                "pattern": pattern, "minutes": minutes, "solo": solo, "approach": approach,
                 "recognized": recognized, "mistakes": mistakes or [],
                 "reviews": reviews if reviews is not None else []}
 
@@ -1342,9 +1355,21 @@ def demo():
                             "recognized": "unknown", "approach": "brute"}])
     assert pm3[0]["recog"] is None
 
-    # render() neutralises </script> in user fields so the page can't be broken
+    # render() neutralises </script> in JSON-inlined user fields so the page can't be broken
     html = render(*build([mk(0, mistakes=["</script><b>x"])], t))
     assert "</script><b>x" not in html and "<\\/script>" in html
+    # ...and the pattern field, which reaches the mermaid <pre> (via _mm) and the client
+    # innerHTML tables (via esc). The payload may still sit INERT inside the JS string
+    # literal (a `<script>` reads to </script>, so `<img` there never becomes a tag) — the
+    # real checks are per-sink: the mermaid <pre> holds no tag-opening `<`, and the JSON
+    # copy's `</` is escaped so the payload can't close the <script> early.
+    evil = "</pre><img src=x onerror=alert(1)>"
+    html2 = render(*build([mk(0, pattern=evil)], t))
+    pre = html2.split('<pre class="mermaid">', 1)[1].split('</pre>', 1)[0]
+    assert "<" not in pre.replace("<br/>", ""), "raw '<' in mermaid <pre> — breakout risk"
+    assert "(/pre)(img" in pre                                        # payload neutralised to text
+    assert "<\\/pre>" in html2                                        # _js escaped the JSON copy's </
+    assert _mm(evil) == "(/pre)(img src=x onerror=alert(1))"
     print("all checks passed")
 
 
