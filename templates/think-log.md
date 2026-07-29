@@ -15,10 +15,10 @@ flatter you later. It's for you. Be honest and it measures something; fudge it a
 
 `──────── ✂ started coding at __:__ — everything above is frozen from here ────────`
 
-<!-- Optional, for a tamper-proof freeze: before you write any code, save this file and run
-     `git add -A && git commit -m "think-log <id>"`. The commit timestamp then proves the top
-     half existed before your solution did — turns the honor-system freeze into a real anchor.
-     Skip it if it's friction; the pre-registration works on trust either way. -->
+<!-- REQUIRED: the top half is frozen by a git commit made BEFORE you code. Don't do it by hand —
+     run `./think.sh <id>` to start the problem; it scaffolds this file and commits it once you've
+     written your plan. The commit timestamp is the proof the plan predated your solution, which is
+     the only thing that makes the recognition score trustworthy. No frozen commit → recognized: unknown. -->
 
 
 ## ⬇ DURING & AFTER

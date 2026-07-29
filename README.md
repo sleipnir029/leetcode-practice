@@ -16,6 +16,14 @@ is in [`ROADMAP.md`](ROADMAP.md).
 
 ## The daily loop
 
+### 0. Start the problem — `./think.sh <id>`  (required, ~1 min)
+
+Run `./think.sh <id>` (e.g. `./think.sh 1768`). It scaffolds today's think-log, opens it, and —
+once you've written your **pre-code plan** in the top half — commits it. That commit timestamp
+proves your plan existed before your solution did. It's the one non-optional step: without the
+frozen commit, recognition can't be scored (it's recorded `unknown`), because a plan written after
+you've seen the answer measures nothing.
+
 ### 1. Solo — timer on, no help
 
 | Difficulty | Think | Code | Total |
@@ -23,9 +31,9 @@ is in [`ROADMAP.md`](ROADMAP.md).
 | Easy | 15 min | 15 min | 30 min |
 | Medium | 15–20 min | 25 min | 45 min |
 
-The **think** phase means writing the approach into `notes.md` in plain English *before* typing
-any code. If the sentence is fuzzy, the code will be too — and in an interview the narration is
-half of what's being graded.
+The **think** phase is the top half of the think-log — the approach in plain English, written and
+**frozen** (step 0) *before* you type any code. If the sentence is fuzzy, the code will be too —
+and in an interview the narration is half of what's being graded.
 
 When the timer ends, stop. Solved, timed out, or wrong — all three are valid outcomes and all
 three feed the same debrief.

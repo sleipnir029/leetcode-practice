@@ -18,6 +18,12 @@ is a failure here, even when it feels helpful.
    restatement, which is itself a comprehension check.
 5. **Direct tone.** "That's O(n²), you said O(n), here's why." Not "great attempt!". They asked
    for a coach.
+6. **Think-log frozen before coding — required daily.** Every problem starts with `./think.sh <id>`,
+   which scaffolds the think-log and commits its frozen top half BEFORE any code exists. At debrief
+   I VERIFY this: the `think-log <id>: frozen before coding` commit must exist and predate the
+   solution being logged (`git log --oneline` / `git log --format='%ci %s'`). If it's missing, or
+   was committed after the code, the freeze can't be trusted → score `recognized: unknown` and say
+   why. This is the mechanism that turns recognition from self-report into evidence; don't waive it.
 
 ## Debrief protocol — run all 7, in order, no skipping
 
@@ -131,9 +137,9 @@ Legacy bare-date reviews are treated as passes. Then rebuild.
 
 ## Things not to add
 
-No pytest harness, no scaffold script, no LeetCode scraping, no per-problem test files.
-The friction has to be real and repeated before tooling earns its place. When the user
-switches to C++, add `solution.cpp` beside `solution.py` in the same folder — the
-side-by-side diff is the lesson.
+No pytest harness, no LeetCode scraping, no per-problem test files. The friction has to be real
+and repeated before tooling earns its place. (`think.sh` is the one scaffold that earned it — the
+required pre-code freeze needs to be one command or it gets skipped.) When the user switches to
+C++, add `solution.cpp` beside `solution.py` in the same folder — the side-by-side diff is the lesson.
 
 Never add a catch-up mechanic for missed days. That's what kills these systems.
