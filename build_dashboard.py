@@ -352,6 +352,15 @@ def validate(progress):
         if e.get("approach") not in ("optimal", "suboptimal", "brute", "stuck"):
             raise ValueError(f"{where} (id {e['id']}): approach {e.get('approach')!r} must be "
                              f"one of optimal / suboptimal / brute / stuck.")
+        # confidence/minutes are hand-typed daily; type- and range-check them so a typo
+        # (a quoted number, a 6, a 0) gives a readable message, not a raw traceback or a
+        # silent client-side crash in confDots.
+        c = e.get("confidence")
+        if not (isinstance(c, int) and not isinstance(c, bool) and 1 <= c <= 5):
+            raise ValueError(f"{where} (id {e['id']}): confidence {c!r} must be an integer 1-5.")
+        m = e.get("minutes", 0)
+        if not (isinstance(m, (int, float)) and not isinstance(m, bool) and m >= 0):
+            raise ValueError(f"{where} (id {e['id']}): minutes {m!r} must be a number >= 0.")
         for r in e.get("reviews", []):
             try:
                 date.fromisoformat(_rev_date(r))
@@ -674,7 +683,7 @@ TEMPLATE = """<!doctype html>
 :root[data-theme="light"]{
   --page:#f4f3ef; --surface:#ffffff; --surface-2:#f7f6f2;
   --ink:#0b0b0b; --ink-2:#2b2b28; --muted:#5c5b56;
-  --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,.16); --dot-off:#8f8e84;
+  --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,.16); --dot-off:#7c7b71;
   --good:#0a8f0a; --watch:#b47600; --gap:#c62f2f;
   --s-blue:#256abf; --s-aqua:#0f8a5f; --s-violet:#4a3aa7; --s-gray:#c3c2b7;
   --good-ink:#0a7a0a; --watch-ink:#8a5a00; --gap-ink:#b02525;
@@ -694,7 +703,7 @@ a:hover{text-decoration:none}
 .bar{position:sticky;top:0;z-index:50;background:var(--page);
  border-bottom:1px solid var(--border);padding:.6rem 0;margin-bottom:1.5rem}
 .bar .wrap{display:flex;align-items:center;gap:1rem;flex-wrap:wrap}
-.bar h1{font-size:1.35rem;margin:0;flex:1;min-width:12ch}
+.bar h1{font-size:1.35rem;margin:0;flex:1;min-width:0}
 .ctrl{display:flex;align-items:center;gap:.35rem}
 .ctrl .cl{font-size:.8rem;color:var(--muted);margin-right:.15rem}
 .btn{font:inherit;font-size:.95rem;background:var(--surface);color:var(--ink);
@@ -719,10 +728,13 @@ h2 .num{color:var(--muted);font-weight:600;font-size:1rem;margin-left:.5rem}
 .hero{background:var(--surface);border:1px solid var(--border);border-radius:16px;
  padding:1.5rem 1.6rem;margin-bottom:1.25rem;display:flex;gap:1.5rem;align-items:center;
  flex-wrap:wrap}
-.hero .fig{font-size:4.5rem;font-weight:700;line-height:1;letter-spacing:-.02em}
+.hero .fig{font-size:4.5rem;font-weight:700;line-height:1;letter-spacing:-.02em;max-width:100%}
 .hero .fig.good{color:var(--good-ink)} .hero .fig.gap{color:var(--gap-ink)}
 .hero .fig.watch{color:var(--watch-ink)} .hero .fig.none{color:var(--muted);font-size:2.2rem}
-.hero .side{flex:1;min-width:16ch;max-width:60ch}
+/* on a narrow screen the giant % must fit the viewport even at max text size, or it
+   pushes the page sideways — cap it in vw here (still large, just bounded) */
+@media(max-width:480px){.hero .fig{font-size:min(4.5rem,19vw)}}
+.hero .side{flex:1;min-width:0;max-width:60ch}  /* min-width:0 so text wraps, not overflows, at large text */
 .hero .side .t{font-size:1.15rem;font-weight:600;margin-bottom:.2rem}
 .hero .side .d{color:var(--ink-2)}
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,10rem),1fr));gap:.9rem;
@@ -759,6 +771,7 @@ h2 .num{color:var(--muted);font-weight:600;font-size:1rem;margin-left:.5rem}
  padding:1.1rem 1.2rem;margin-bottom:1.25rem}
 .chartbox h3{margin:0 0 .8rem;font-size:1.05rem}
 .cwrap{position:relative;height:300px}
+.cwrap canvas{max-width:100%}  /* Chart.js canvas must not push the page wider than its cell */
 .cwrap.tall{height:600px} .cwrap.short{height:240px}
 .chart-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
  color:var(--muted);font-size:1.05rem;text-align:center;padding:1rem}
@@ -916,7 +929,7 @@ const lc = p => `https://leetcode.com/problems/${p.slug}/`;
 const notes = p => `solutions/${p.section}/${p.id}-${p.slug}/notes.md`;
 const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const secName = s => s.slice(3).replace(/-/g, ' ');
-const confDots = c => { const n = Math.round(c);
+const confDots = c => { const n = Math.max(0, Math.min(5, Math.round(c)));  // clamp: a stray value must never crash the render
   return `<span class="dots" aria-label="${n} of 5">${'●'.repeat(n)}`.replace(/●/g,'<span class="on">●</span>')
     + `${'○'.repeat(5-n)}`.replace(/○/g,'<span class="off">○</span>') + '</span>'; };
 
@@ -1323,14 +1336,19 @@ def demo():
     assert st_thin[2] is None, st_thin
 
     # validate() rejects bad data with a clear message instead of crashing later
-    ok = {"approach": "optimal"}  # valid approach so other checks are the ones that fire
+    ok = {"approach": "optimal", "confidence": 3}  # valid so the checked field is the one that fires
     for bad, needle in [
         ([{"id": 99999, "date": "2026-08-01", **ok}], "not a LeetCode 75"),
         ([{"id": 1768, "date": "08/01/2026", **ok}], "not YYYY-MM-DD"),
         ([{"id": 1768, "date": "2026-08-01", **ok}, {"id": 1768, "date": "2026-08-02", **ok}], "twice"),
         ([{"id": 1768}], "missing"),
-        ([{"id": 1768, "date": "2026-08-01"}], "approach"),                       # missing approach
-        ([{"id": 1768, "date": "2026-08-01", "approach": "optimal",
+        ([{"id": 1768, "date": "2026-08-01"}], "approach"),                        # missing approach
+        ([{"id": 1768, "date": "2026-08-01", "approach": "optimal"}], "confidence"),  # missing confidence
+        ([{"id": 1768, "date": "2026-08-01", "approach": "optimal", "confidence": 6}], "confidence"),  # out of range
+        ([{"id": 1768, "date": "2026-08-01", "approach": "optimal", "confidence": "4"}], "confidence"),  # wrong type
+        ([{"id": 1768, "date": "2026-08-01", "approach": "optimal", "confidence": 3,
+           "minutes": "30"}], "minutes"),                                          # wrong type
+        ([{"id": 1768, "date": "2026-08-01", "approach": "optimal", "confidence": 3,
            "reviews": [{"date": "2026-08-02", "result": "blank", "confidenceWas": 9}]}], "confidenceWas"),
     ]:
         try:

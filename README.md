@@ -86,8 +86,9 @@ recorded honestly during each debrief drive it:
 
 > **Why the think-note matters:** you solve on LeetCode, not with me, so your code is all I see —
 > and code shows the *result*, not what you were thinking at minute 3. The think-note is the only
-> honest way to measure whether you *recognised* the pattern, which is the most transferable
-> interview skill. Two lines is enough; paste it at `/debrief`.
+> honest way to measure whether you *recognised* the pattern before coding — a strong signal for
+> how well a problem will transfer, and a useful complement to the optimal-first north-star. Two
+> lines is enough; paste it at `/debrief`.
 
 From those it computes the signals that actually matter for interviews:
 
