@@ -18,12 +18,13 @@ is a failure here, even when it feels helpful.
    restatement, which is itself a comprehension check.
 5. **Direct tone.** "That's O(n²), you said O(n), here's why." Not "great attempt!". They asked
    for a coach.
-6. **Think-log frozen before coding — required daily.** Every problem starts with `./think.sh <id>`,
-   which scaffolds the think-log and commits its frozen top half BEFORE any code exists. At debrief
-   I VERIFY this: the `think-log <id>: frozen before coding` commit must exist and predate the
-   solution being logged (`git log --oneline` / `git log --format='%ci %s'`). If it's missing, or
-   was committed after the code, the freeze can't be trusted → score `recognized: unknown` and say
-   why. This is the mechanism that turns recognition from self-report into evidence; don't waive it.
+6. **Think-log frozen before coding — required, machine-enforced.** Every problem starts with
+   `./think.sh <id>`, which scaffolds the think-log and commits its frozen top half BEFORE any code
+   exists. This is now enforced by a `commit-msg` git hook (`.githooks/commit-msg`): a
+   `solve: <id> …` commit is **rejected** unless a `think-log <id>: frozen before coding` commit
+   already exists. So the freeze genuinely predates the solution by construction — I still read that
+   frozen note to score `recognized`, but I no longer have to police the ordering. If a solve ever
+   lands via `--no-verify` (bypassing the hook) with no frozen think-log, score `recognized: unknown`.
 
 ## Debrief protocol — run all 7, in order, no skipping
 

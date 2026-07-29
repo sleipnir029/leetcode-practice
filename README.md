@@ -20,9 +20,12 @@ is in [`ROADMAP.md`](ROADMAP.md).
 
 Run `./think.sh <id>` (e.g. `./think.sh 1768`). It scaffolds today's think-log, opens it, and —
 once you've written your **pre-code plan** in the top half — commits it. That commit timestamp
-proves your plan existed before your solution did. It's the one non-optional step: without the
-frozen commit, recognition can't be scored (it's recorded `unknown`), because a plan written after
-you've seen the answer measures nothing.
+proves your plan existed before your solution did.
+
+This isn't just a convention: a git `commit-msg` hook (`.githooks/commit-msg`, auto-activated by
+`think.sh`) **refuses** a `solve: <id>` commit unless the matching `think-log <id>` commit already
+exists. So the freeze provably comes first — the machine enforces it, not just good intentions.
+(If you ever `git commit --no-verify` past it, recognition for that problem is scored `unknown`.)
 
 ### 1. Solo — timer on, no help
 

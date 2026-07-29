@@ -7,6 +7,9 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# make sure the commit-msg guard is active (idempotent self-install; hooks dir is tracked)
+[ "$(git config core.hooksPath 2>/dev/null)" = ".githooks" ] || git config core.hooksPath .githooks
+
 id="${1:-}"
 [ -z "$id" ] && { echo "usage: ./think.sh <leetcode-id>   (e.g. ./think.sh 1768)"; exit 1; }
 

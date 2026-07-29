@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# commit-msg hook — enforce the pre-code freeze as a machine rule, not an honor-system promise.
+#
+# A `solve: <id> ...` commit is only allowed if a `think-log <id>: frozen before coding`
+# commit already exists in history (created by ./think.sh BEFORE you wrote any code). Since
+# that commit predates this one, the plan provably came first — which is the whole basis for
+# scoring `recognized`. Without it, recognition is untrustworthy and must be `unknown`.
+#
+# Only `solve:` commits are gated. Everything else (think-log, review, feat, fix, …) passes.
+# Emergency bypass: `git commit --no-verify` (but then recognized must be scored "unknown").
+
+msg=$(head -n1 "$1")
+
+if [[ "$msg" =~ ^solve:[[:space:]]+([0-9]+) ]]; then
+  id="${BASH_REMATCH[1]}"
+  if git rev-parse --quiet --verify HEAD >/dev/null 2>&1 \
+     && git log --format='%s' | grep -qxF "think-log $id: frozen before coding"; then
+    exit 0
+  fi
+  {
+    echo "commit-msg: blocked — no frozen think-log for problem $id."
+    echo "  A 'solve: $id …' commit requires an earlier 'think-log $id: frozen before coding' commit."
+    echo "  Start the problem with:  ./think.sh $id   (freezes your pre-code plan) — then solve, then debrief."
+    echo "  Emergency bypass:  git commit --no-verify   (but then recognized must be scored 'unknown')."
+  } >&2
+  exit 1
+fi
+
+exit 0
