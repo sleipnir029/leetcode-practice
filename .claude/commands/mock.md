@@ -34,7 +34,9 @@ At the end, rate each 1–5 and be specific and direct:
 - **Composure** — did they recover from a stumble, or spiral?
 
 Give the two concrete things to do differently next time. If a communication weakness recurs across
-mocks, add a line to `mistakes.md` tagged `communication` so it shows up as a pattern.
+mocks, add a line to `mistakes.md` describing it. Do NOT put a `communication` tag in
+`progress.json` — the `mistakes` array is validated against a fixed vocabulary that does not
+include it, so the build will reject the entry outright.
 
 Mock results are coaching, not dashboard data — do **not** write them to `progress.json` (its
 `approach`/`recognized` fields are for the solo loop and would be corrupted by an assisted run).

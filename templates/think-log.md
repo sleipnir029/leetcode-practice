@@ -1,6 +1,6 @@
 # Think-log — <id> <title>
 
-Copy this per problem. Keep it in a scratch file next to LeetCode while the timer runs.
+`./think.sh <id>` copies this into the problem folder and commits it for you — don't copy it by hand.
 Fill the TOP half BEFORE you write a single line of code, then **don't touch it again**.
 That's the whole trick: a record written before you know the answer can't be rewritten to
 flatter you later. It's for you. Be honest and it measures something; fudge it and it measures nothing.
@@ -17,8 +17,10 @@ flatter you later. It's for you. Be honest and it measures something; fudge it a
 
 <!-- REQUIRED: the top half is frozen by a git commit made BEFORE you code. Don't do it by hand —
      run `./think.sh <id>` to start the problem; it scaffolds this file and commits it once you've
-     written your plan. The commit timestamp is the proof the plan predated your solution, which is
-     the only thing that makes the recognition score trustworthy. No frozen commit → recognized: unknown. -->
+     written your plan. That commit proves the plan landed before the solve commit and wasn't blank —
+     it can't prove it predated the solving itself, which happens on LeetCode where the repo sees
+     nothing. So it only measures anything if you genuinely fill this in first.
+     No frozen commit → recognized: unknown. -->
 
 
 ## ⬇ DURING & AFTER

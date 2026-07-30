@@ -9,7 +9,7 @@ Do this:
 
 1. Read the current metrics: run `python3 build_dashboard.py` mentally or read `progress.json`
    for approach / recognized / mistakes / confidence trends.
-2. Read the `## Approach before coding` and `## What I got stuck on` sections across the
+2. Read the frozen `## ⭐ THINK-LOG` and `## Where I got stuck` sections across the
    `notes.md` files in `solutions/`. This is the actual evidence of thinking.
 3. Judge, specifically and directly:
    - Are the pre-code plans getting crisper, or still vague?

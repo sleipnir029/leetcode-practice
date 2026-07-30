@@ -5,8 +5,8 @@ Solo result: solved / timeout / wrong-answer  |  Time used: <n> min
 
 ## ⭐ THINK-LOG
 <!--
-Capture this in `templates/think-log.md` (copy it per problem) DURING the timer — the top half
-BEFORE you code, then frozen. Paste the filled think-log in here at debrief. It's the only thing
+Your frozen think-log is already at `think-log.md` in this folder — `./think.sh <id>` created and
+committed it before you coded. Paste its filled contents in here at debrief. It's the only thing
 that lets recognition be scored; without it, `recognized` is "unknown", not guessed.
 -->
 <paste your frozen think-log here>

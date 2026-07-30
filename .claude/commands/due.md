@@ -2,11 +2,15 @@
 description: Today's spaced-repetition review queue — quiz, re-solve, log
 ---
 
-Read `progress.json` and work out what's due today (intervals D+1, D+7, D+30; `confidence <= 2`
+Read `progress.json` and work out what's due today (four rungs — 1, 7, 30 then 90 days, each
+measured from the PREVIOUS review, not from the solve date; `confidence <= 2`
 halves the gap — the logic lives in `next_review()` in `build_dashboard.py`, so read that rather
 than reimplementing the arithmetic).
 
-Show the queue, most overdue first. Then for each problem the user wants to review:
+Show the queue, most overdue first, and work the whole thing — there's no cap. With clean recall it
+peaks around 3/day; a longer queue almost always means a high blank rate (each blank resets that
+problem to box 1), so check the retention number before suggesting they skipped days or are going
+too fast. Don't quietly triage, and don't accuse. Then for each problem:
 
 1. Show only the **title and the trigger line from `notes.md`** — never `solution.py`.
 2. Ask them to state the approach from memory, out loud, before touching a keyboard.

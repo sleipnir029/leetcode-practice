@@ -100,12 +100,20 @@ INTERVALS = [1, 7, 30, 90]  # gap in days from the PREVIOUS review (not from the
 # 3 points is noise; below MIN_RATE_N we show "need k more" instead of a number.
 MIN_RATE_N = 5
 WINDOW = 10
+# per-pattern floor. Lower than MIN_RATE_N on purpose: with 22 sections across 75 problems a
+# pattern rarely reaches 5, so 5 would blank the whole table forever — but 1 is not a rate.
+MIN_PATTERN_N = 3
 MISTAKE_TAGS = ["off-by-one", "edge-empty", "wrong-complexity", "wrong-ds",
                 "premature-code", "logic", "syntax"]
 # recognition can only be judged from the user's think-note (what they planned BEFORE
 # coding). Without a note it's "unknown" — honestly excluded from the rate, never guessed
 # from the finished code, which shows the result, not the thought.
 KNOWN_RECOG = ("self", "hinted", "missed")
+# the vocabulary the templates actually give you (templates/think-log.md, templates/notes.md).
+# Validated, because a value outside this set silently scores 0 attention points instead of
+# failing — "wrong" vs "wrong-answer" cost us exactly that bug.
+SOLO = ("solved", "timeout", "wrong-answer")
+APPROACH = ("optimal", "suboptimal", "brute", "stuck")
 
 
 def _chron(progress):
@@ -122,8 +130,26 @@ def rate(solved, pred, window=WINDOW):
     return sum(1 for e in recent if pred(e)) / len(recent), len(recent)
 
 
+def _optimal_first(e):
+    """Did they reach the best-known solution *themselves, first time*? Three conditions, because
+    the phrase has to mean what it says:
+      - the code was optimal,
+      - they actually finished it inside the timer (a timeout is not a win), and
+      - they didn't get there off a hint or editorial.
+    `approach` alone is a code-quality score and is deliberately hint-agnostic — reading the
+    editorial and then typing the optimal solution is still honestly logged as `optimal`. It just
+    doesn't count HERE, which is the whole point of the north-star being a separate question."""
+    return (e.get("approach") == "optimal"
+            and e.get("solo") == "solved"
+            and e.get("recognized") != "hinted")
+
+
 def optimal_first_rate(solved, window=WINDOW):
-    return rate(solved, lambda e: e.get("approach") == "optimal", window)
+    """Denominator is the note-backed attempts only — same treatment recognition gets. Without a
+    frozen think-log I can't tell a clean solve from a hint-assisted one, and guessing in either
+    direction corrupts the number: counting it inflates, excluding it punishes good work. So the
+    problem simply isn't in the sample. Skipping ./think.sh costs you data, not credit."""
+    return rate(_recognized_known(solved), _optimal_first, window)
 
 
 def _recognized_known(solved):
@@ -168,7 +194,8 @@ def _median(xs):
 def solve_time_trend(solved, diff, window=WINDOW):
     """(recent median minutes, prior median, direction) for one difficulty,
     or None below MIN_RATE_N. 'down' in minutes is improvement."""
-    chron = [e for e in _chron(solved) if e.get("minutes")]
+    # a 45-minute timeout is not a solve time — it would inflate the median it feeds
+    chron = [e for e in _chron(solved) if e.get("minutes") and _is_solved(e)]
     chron = [e for e in chron if _diff_of(e) == diff]
     if len(chron) < MIN_RATE_N:
         return None
@@ -189,13 +216,40 @@ def _diff_of(entry):
     return _SEED_DIFF.get(entry["id"], "")
 
 
+RETENTION_MIN_GAP = INTERVALS[1]  # 7 days — below this it's a retest, not retention
+
+
+def _reviews_by_gap(entry):
+    """(review, days since the previous test) pairs — the ACTUAL calendar gap, measured from the
+    solve date for the first review and from the preceding review after that.
+
+    Deliberately not the Leitner rung. `confidence <= 2` halves the scheduled interval, so a
+    rung-1 review can be a 3-day retest; going by rung would file that under week-plus recall.
+    The calendar also tells the truth when a review is done late or early, which the rung can't."""
+    prev = entry["date"]
+    for r in entry.get("reviews", []):
+        d = _rev_date(r)
+        yield r, (date.fromisoformat(d) - date.fromisoformat(prev)).days
+        prev = d
+
+
 def retention_rate(progress, min_n=MIN_RATE_N):
-    """(fraction of reviews passed, total reviews), or None below min_n reviews.
-    This is the outcome the spaced-repetition schedule was flying blind on before."""
-    revs = [r for e in progress for r in e.get("reviews", [])]
-    if len(revs) < min_n:
+    """(fraction passed, n) over reviews taken at least RETENTION_MIN_GAP days after the previous
+    test — or None below min_n of those. Plainly: does it still stick after a week?
+
+    Excluding the short gaps is what makes this honest. A blank resets its problem to box 1, which
+    mints a fresh next-day retest; counting every review equally meant a bad stretch generated its
+    own cheap wins and diluted itself, so the number read BETTER as recall got worse. The cost is
+    that each problem's genuine first (1-day) review doesn't count either — no real loss, since
+    next-day recall was never the thing worth measuring, and week-plus recall is what the ROADMAP
+    gate is actually asking about."""
+    outcomes = [_rev_result(r)
+                for e in progress
+                for r, gap in _reviews_by_gap(e)
+                if gap >= RETENTION_MIN_GAP]
+    if len(outcomes) < min_n:
         return None
-    return sum(1 for r in revs if _rev_result(r) == "pass") / len(revs), len(revs)
+    return sum(1 for o in outcomes if o == "pass") / len(outcomes), len(outcomes)
 
 
 def overconfident(problems):
@@ -206,7 +260,7 @@ def overconfident(problems):
     Falls back to current confidence only for legacy reviews with no snapshot."""
     out = []
     for p in problems:
-        if not p["solved"]:
+        if not p["attempted"]:
             continue
         for r in p.get("reviews", []):
             if _rev_result(r) != "blank":
@@ -234,7 +288,7 @@ def attention_score(entry, overdue):
     s = 0
     c = entry.get("confidence", 3)
     s += 2 if c <= 2 else 1 if c == 3 else 0
-    if entry.get("solo") in ("timeout", "wrong"):
+    if entry.get("solo") in ("timeout", "wrong-answer"):
         s += 2
     ap = entry.get("approach")
     s += 2 if ap in ("brute", "stuck") else 1 if ap == "suboptimal" else 0
@@ -254,7 +308,7 @@ def attention_reason(entry):
         return "blanked a review"
     if ap in ("brute", "stuck"):
         return "only reached " + ap
-    if entry.get("solo") in ("timeout", "wrong"):
+    if entry.get("solo") in ("timeout", "wrong-answer"):
         return "failed solo (" + entry["solo"] + ")"
     if c <= 2:
         return "low confidence"
@@ -327,13 +381,28 @@ def streak(dates, today):
     return n
 
 
+def _is_solved(e):
+    """A logged attempt counts as *solved* only if it reached working code. `approach:
+    "stuck"` means the timer ran out with nothing working — that must not fill the progress
+    bar, and the problem has to come back around as a fresh cold attempt instead of being
+    skipped forever by "Next up". It still has a logged entry, so it keeps showing up in
+    "Needs attention" — that's the `attempted` flag, which is a different question."""
+    return bool(e) and e.get("approach") != "stuck"
+
+
 def validate(progress):
     """Fail loud with a human-readable message on bad progress.json, instead of a
     raw traceback (the file is hand-edited daily, so typos are expected). Checks:
     known id, no duplicate ids, parseable ISO date. Returns progress unchanged."""
+    if not isinstance(progress, list):
+        raise ValueError(f"progress.json must be a JSON array of entries, not a "
+                         f"{type(progress).__name__}. The whole file is one [ ... ] list.")
     seen = set()
     for i, e in enumerate(progress):
         where = f"entry #{i + 1}"
+        if not isinstance(e, dict):
+            raise ValueError(f"{where} in progress.json must be an object "
+                             f"{{\"id\": ..., \"date\": ...}}, got {e!r}.")
         if "id" not in e or "date" not in e:
             raise ValueError(f"{where} in progress.json is missing 'id' or 'date'.")
         if e["id"] not in _SEED_DIFF:
@@ -349,9 +418,9 @@ def validate(progress):
         # approach must be scored on every solved entry — unlike recognition it's always
         # judgeable from the code, so a missing value is a logging error, not "unknown".
         # (Without this, a missing approach silently counts as a non-optimal miss.)
-        if e.get("approach") not in ("optimal", "suboptimal", "brute", "stuck"):
+        if e.get("approach") not in APPROACH:
             raise ValueError(f"{where} (id {e['id']}): approach {e.get('approach')!r} must be "
-                             f"one of optimal / suboptimal / brute / stuck.")
+                             f"one of {' / '.join(APPROACH)}.")
         # confidence/minutes are hand-typed daily; type- and range-check them so a typo
         # (a quoted number, a 6, a 0) gives a readable message, not a raw traceback or a
         # silent client-side crash in confDots.
@@ -361,7 +430,11 @@ def validate(progress):
         m = e.get("minutes", 0)
         if not (isinstance(m, (int, float)) and not isinstance(m, bool) and m >= 0):
             raise ValueError(f"{where} (id {e['id']}): minutes {m!r} must be a number >= 0.")
-        for r in e.get("reviews", []):
+        revs = e.get("reviews", [])
+        if not isinstance(revs, list):
+            raise ValueError(f"{where} (id {e['id']}): reviews must be a list "
+                             f"(use [] if you haven't reviewed it yet), got {revs!r}.")
+        for r in revs:
             try:
                 date.fromisoformat(_rev_date(r))
             except (ValueError, TypeError, KeyError):
@@ -372,9 +445,45 @@ def validate(progress):
                     raise ValueError(f"{where} (id {e['id']}): review result {r.get('result')!r} "
                                      f"must be 'pass' or 'blank'.")
                 cw = r.get("confidenceWas")
-                if cw is not None and not (isinstance(cw, int) and 1 <= cw <= 5):
+                if cw is not None and not (isinstance(cw, int) and not isinstance(cw, bool)
+                                           and 1 <= cw <= 5):
                     raise ValueError(f"{where} (id {e['id']}): review confidenceWas {cw!r} "
                                      f"must be an integer 1-5.")
+        # Order is load-bearing: retention measures the calendar gap between consecutive tests, so
+        # an out-of-order append silently mis-scores it (and can produce a negative gap).
+        seq = [e["date"]] + [_rev_date(r) for r in revs]
+        for i, (earlier, later) in enumerate(zip(seq, seq[1:])):
+            if later < earlier:
+                if i == 0:
+                    raise ValueError(f"{where} (id {e['id']}): review dates must run forwards — "
+                                     f"review {later} is earlier than the solve date {earlier}. "
+                                     f"You can't review a problem before you solved it.")
+                raise ValueError(f"{where} (id {e['id']}): review dates must run forwards — "
+                                 f"{later} comes after {earlier} in the list but is an earlier "
+                                 f"date. Append reviews in the order they happened.")
+        # The evaluation fields were previously unchecked, so a capitalisation typo ("Self")
+        # or a near-miss tag ("off by one") silently vanished from the rate it was meant to
+        # feed — no error, just a quietly wrong number. Fail loud instead. Checked last so a
+        # more basic problem (bad id, bad date, bad confidence) reports itself first.
+        if e.get("recognized") not in KNOWN_RECOG + ("unknown",):
+            raise ValueError(f"{where} (id {e['id']}): recognized {e.get('recognized')!r} must be "
+                             f"one of {' / '.join(KNOWN_RECOG)} / unknown "
+                             f"(unknown = no frozen think-note; it's excluded from the rate).")
+        if e.get("solo") not in SOLO:
+            raise ValueError(f"{where} (id {e['id']}): solo {e.get('solo')!r} must be "
+                             f"one of {' / '.join(SOLO)}.")
+        tags = e.get("mistakes", [])
+        if not isinstance(tags, list):
+            raise ValueError(f"{where} (id {e['id']}): mistakes must be a list of tags "
+                             f"(use [] for a clean solve), got {tags!r}.")
+        for tag in tags:
+            if tag not in MISTAKE_TAGS:
+                raise ValueError(f"{where} (id {e['id']}): mistake tag {tag!r} is not in the "
+                                 f"fixed vocabulary {MISTAKE_TAGS}.")
+        # pattern is used as a dict key in pattern_mastery, so a non-string crashed there
+        if not isinstance(e.get("pattern", ""), str):
+            raise ValueError(f"{where} (id {e['id']}): pattern {e.get('pattern')!r} must be "
+                             f"a string.")
     return progress
 
 
@@ -384,12 +493,16 @@ def build(progress, today):
     problems = []
     for pid, title, diff, section in SEED:
         e = by_id.get(pid)
-        due = next_review(e, today) if e else None
+        # only a *solved* problem enters the review queue: there's nothing to review on an
+        # attempt that never reached working code, and it's already being re-served cold by
+        # "Next up" — queueing it too would double-count it and inflate "reviews due".
+        due = next_review(e, today) if _is_solved(e) else None
         overdue = (today - due).days if due and due <= today else None
         problems.append({
             "id": pid, "title": title, "diff": diff, "section": section,
             "slug": slug(title),
-            "solved": bool(e),
+            "solved": _is_solved(e),
+            "attempted": bool(e),
             "pattern": (e or {}).get("pattern", ""),
             "confidence": (e or {}).get("confidence", 0),
             "date": (e or {}).get("date", ""),
@@ -407,13 +520,23 @@ def build(progress, today):
     stats = {
         # derived from rendered problems, not len(progress), so solved == easy+medium always
         "solved": sum(1 for p in problems if p["solved"]),
+        # every rate is computed over logged *attempts* (len(progress)), so the "not enough
+        # data yet" gates must count attempts too — gating on `solved` made the hero and the
+        # diagnosis print two different counts on the same page.
+        "attempted": sum(1 for p in problems if p["attempted"]),
         "total": len(SEED),
         "easy": sum(1 for p in problems if p["solved"] and p["diff"] == "easy"),
         "easyTotal": sum(1 for p in SEED if p[2] == "easy"),
         "medium": sum(1 for p in problems if p["solved"] and p["diff"] == "medium"),
         "mediumTotal": sum(1 for p in SEED if p[2] == "medium"),
-        "streak": streak([e["date"] for e in progress], today),
-        "days": len({e["date"] for e in progress}),
+        # a review day counts as a practice day. The dashboard tells you to clear the review
+        # queue before starting a new problem, so a streak fed only by new solves would zero
+        # itself on exactly the day you followed that advice.
+        "streak": streak([e["date"] for e in progress]
+                         + [_rev_date(r) for e in progress for r in e.get("reviews", [])],
+                         today),
+        "days": len({e["date"] for e in progress}
+                    | {_rev_date(r) for e in progress for r in e.get("reviews", [])}),
         "today": today.isoformat(),
     }
     nxt = next((p for p in problems if not p["solved"]), None)
@@ -424,6 +547,10 @@ def build(progress, today):
     rec = recognition_rate(progress)
     ret = retention_rate(progress)
     stats["optimalFirst"] = {"rate": round(ofr[0], 2), "n": ofr[1]} if ofr else None
+    # attempts carrying a frozen think-log — the population optimal_first_rate and recognition_rate
+    # both draw from, so it's what the "not enough data yet" gates must count. Counting all
+    # attempts here would print "need 2 more" beside a rate that needs 4.
+    stats["judged"] = len(_recognized_known(progress))
     stats["recognition"] = {"rate": round(rec[0], 2), "n": rec[1]} if rec else None
     stats["retention"] = {"rate": round(ret[0], 2), "n": ret[1]} if ret else None
     stats["minRateN"] = MIN_RATE_N
@@ -453,31 +580,41 @@ def cognition_series(solved, window=WINDOW):
     only over solves that carry a think-note (KNOWN_RECOG), so it never counts an
     unscored problem as a recognition failure."""
     chron = _chron(solved)
-    ol, ov = _roll(chron, lambda e: e.get("approach") == "optimal", window)
+    # same population and predicate as optimal_first_rate, or the chart contradicts the hero
+    ol, ov = _roll(_recognized_known(chron), _optimal_first, window)
     rl, rv = _roll(_recognized_known(chron), lambda e: e.get("recognized") == "self", window)
     return {"optLabels": ol, "optimal": ov, "recLabels": rl, "recognition": rv}
 
 
 def pattern_mastery(problems):
-    """Per pattern: how many, avg confidence, self-recognition %, optimal-first %.
+    """Per pattern: how many, avg confidence, self-recognition %, optimal-code %.
     Sorted weakest first — the 'what am I lacking' view."""
     out = {}
     for p in problems:
-        if not p["solved"] or not p["pattern"]:
+        if not p["attempted"] or not p["pattern"]:
             continue
         out.setdefault(p["pattern"], []).append(p)
     rows = []
     for pat, ps in out.items():
         n = len(ps)
         known = [p for p in ps if p["recognized"] in KNOWN_RECOG]  # recog only where scored
+        # Percentages need a floor here too, same as every other rate. With 22 sections over 75
+        # problems most patterns sit at n=2-3, and "0%" off a single problem reads as a verdict
+        # under a heading that says "weakest first". Below MIN_PATTERN_N we publish the counts and
+        # withhold the percentages rather than dressing one problem up as a rate.
+        enough = n >= MIN_PATTERN_N
         rows.append({
             "pattern": pat, "n": n,
             "conf": round(sum(p["confidence"] for p in ps) / n, 1),
             "recog": round(100 * sum(1 for p in known if p["recognized"] == "self") / len(known))
-                     if known else None,
-            "optimal": round(100 * sum(1 for p in ps if p["approach"] == "optimal") / n),
+                     if known and enough else None,
+            "optimal": round(100 * sum(1 for p in ps if p["approach"] == "optimal") / n)
+                       if enough else None,
+            "optimalCount": sum(1 for p in ps if p["approach"] == "optimal"),
         })
-    rows.sort(key=lambda r: (r["optimal"], r["conf"]))
+    # weakest first, but a withheld percentage isn't evidence of weakness — those sort last
+    rows.sort(key=lambda r: (r["optimal"] is None, r["optimal"] or 0,
+                             r["optimalCount"] / r["n"], r["conf"]))
     return rows
 
 
@@ -487,21 +624,24 @@ def diagnosis(solved, problems):
     data to stand on. The action is the 'what to do about it' the observation implies."""
     flags = []
     n = len(solved)
+    judged = len(_recognized_known(solved))
     if n < MIN_RATE_N:
         left = MIN_RATE_N - n
+        note_gap = MIN_RATE_N - judged
         flags.append((
             "watch",
-            f"Building your baseline. You've logged {n} of the {MIN_RATE_N} solves needed before "
+            f"Building your baseline. You've logged {n} of the {MIN_RATE_N} attempts needed before "
             f"the evaluation can say anything trustworthy.",
-            f"Just keep going — {left} more problem{'s' if left != 1 else ''} and the real numbers "
-            f"(optimal-first rate, pattern recognition, recurring bugs) switch on. A rate over "
-            f"{n} problem{'s' if n != 1 else ''} would be noise, so it stays quiet on purpose."))
+            f"Just keep going — the mistakes chart is already live (it's raw counts, no threshold); "
+            f"{left} more problem{'s' if left != 1 else ''} and I'll start calling out a *recurring* "
+            f"one. Optimal-first and recognition need {note_gap} more started with ./think.sh, since "
+            f"both are scored only from the frozen note."))
         return flags
 
     ofr = optimal_first_rate(solved)
     if ofr:
         pct = round(100 * ofr[0])
-        t = trend(solved, lambda e: e.get("approach") == "optimal")
+        t = trend(_recognized_known(solved), _optimal_first)
         arrow = {"up": ", and rising", "down": ", and slipping lately", "flat": ""}.get(t, "")
         # tiers match the hero tile exactly (good >=60, watch 40-59, gap <40)
         if pct >= 60:
@@ -547,12 +687,13 @@ def diagnosis(solved, problems):
         have = len(_recognized_known(solved))
         flags.append((
             "watch",
-            f"Recognition tracking is off because I can only score it from your think-note — what you "
-            f"planned BEFORE coding — and only {have} of your {len(solved)} solves have one. I can't "
-            f"read your pre-code thinking from the finished code, so I won't guess it.",
-            "Jot a 2-line think-note while you solve on LeetCode (restate + the pattern you reached "
-            "for before coding + did you peek at any hint), and paste it at /debrief. It's what "
-            "unlocks recognition tracking — a strong signal for how well problems will transfer."))
+            f"Recognition AND optimal-first are both dark right now: I can only score them from your "
+            f"think-note — what you planned BEFORE coding — and only {have} of your {len(solved)} "
+            f"attempts have a frozen one. Without it I can't tell a clean solve from a hinted one, "
+            f"and I won't guess, so those problems sit outside both numbers entirely.",
+            "Start every problem with ./think.sh (e.g. ./think.sh 1768) — it scaffolds the think-log "
+            "and commits your pre-code plan before you type any code. That frozen commit is the only "
+            "thing that unlocks recognition tracking; a note written afterwards scores 'unknown'."))
 
     tax = mistake_taxonomy(solved)
     if tax:
@@ -587,14 +728,16 @@ def diagnosis(solved, problems):
         if pct >= 80:
             flags.append((
                 "good",
-                f"Retention is holding: you passed {pct}% of your {ret[1]} reviews. The spaced "
-                f"repetition is doing its job — what you solve is actually sticking.",
-                "Keep clearing reviews on time; the schedule is calibrated to your recall."))
+                f"Retention is holding: you passed {pct}% of your {ret[1]} reviews at a week or "
+                f"longer. That's the number that matters — what you solve is actually sticking.",
+                "Keep clearing reviews on time. (1-day retests aren't counted here; next-day "
+                "recall was never the thing worth measuring.)"))
         else:
             flags.append((
                 "gap",
-                f"Retention is leaking: you passed only {pct}% of your {ret[1]} reviews — a lot of "
-                f"what you 'learned' didn't survive to the next visit. Solving isn't remembering.",
+                f"Retention is leaking: you passed only {pct}% of your {ret[1]} reviews at a week "
+                f"or longer — a lot of what you 'learned' didn't survive the gap. Solving isn't "
+                f"remembering.",
                 "Slow down the new-problem pace and clear reviews first. A blanked review now "
                 "reschedules that problem for tomorrow, so let the queue catch you up."))
 
@@ -614,8 +757,9 @@ def diagnosis(solved, problems):
             "watch",
             f"{len(overdue)} reviews are overdue. Spaced repetition only works if the repetitions "
             f"actually happen — a solved problem you never revisit fades within weeks.",
-            "Run /due and clear the queue before starting a new problem. Reviews take ~10 minutes "
-            "and don't use up your daily problem."))
+            f"Run /due and clear them before starting a new problem — that's roughly "
+            f"{10 * len(overdue)} minutes at ~10 min each, and none of it uses up your daily "
+            f"problem. If this keeps happening, the blank rate is the thing to fix, not the pace."))
     return flags
 
 
@@ -832,7 +976,7 @@ has enough data to be honest.</p>
 
 <h2>The one number that matters most</h2>
 <p class="lead">In an interview, the test isn't "did you solve it" — it's "did you find the
-efficient idea yourself." This is the share of your recent solo attempts that reached the optimal
+efficient idea yourself." This is the share of your recent note-backed attempts that reached the optimal
 approach <em>before</em> any help.</p>
 <div class="hero" id="hero-opt"></div>
 <div class="grid2">
@@ -860,7 +1004,7 @@ approach <em>before</em> any help.</p>
 <div class="diag" id="diag"></div>
 
 <h2>Needs attention <span class="num">weakest first</span></h2>
-<p class="lead">Your solved problems, ranked by how much they still need work — low confidence,
+<p class="lead">Your logged attempts, ranked by how much they still need work — low confidence,
 a failed solo attempt, a brute-force-only solution, or an overdue review. Start reviews here.</p>
 <div class="tblcard scroll"><table id="attention"><caption>Ranked most-to-least in need of a revisit.</caption></table></div>
 
@@ -875,7 +1019,9 @@ habit worth a targeted 30-second check before you run your code.</p>
 
 <h2>Pattern mastery <span class="num">weakest first</span></h2>
 <p class="lead">Per pattern: how often you reached optimal, how often you recognised it, and your
-average confidence. Low rows are patterns you've technically solved but haven't truly internalised.</p>
+average confidence. Low rows are patterns you've technically attempted but haven't truly
+internalised. Below 3 attempts in a pattern the percentages are withheld and you get the raw count
+instead (<code>1/2</code>) — one problem is not a rate.</p>
 <div class="tblcard scroll"><table id="mastery"></table></div>
 
 <h2>Progress</h2>
@@ -904,9 +1050,12 @@ average confidence where you've solved something.</p>
 <div class="tblcard scroll"><table id="sections"></table></div>
 
 <h2>Review queue</h2>
-<p class="lead">Spaced repetition: each solved problem returns at +1 day, +7 days, +30 days
-(sooner if you were shaky). Clearing these matters more than a new problem — retention decays
-without them.</p>
+<p class="lead">Spaced repetition: each solved problem returns on four rungs — 1, 7, 30 then 90 days,
+each measured from the previous review (sooner if you were shaky; a blank sends it back to rung one).
+Clearing these matters more than a new problem — retention decays without them, and a review day
+keeps your streak alive. Cleared daily this peaks around 3/day with clean recall — but every blank
+resets a problem to box 1 and mints a fresh ladder, so a long queue usually means recall is slipping,
+not that you skipped days. Check the retention number before you blame the calendar.</p>
 <div id="queue"></div>
 
 <h2>Mind map <span class="num">section → pattern → problem</span></h2>
@@ -914,7 +1063,7 @@ without them.</p>
 unseen interview question. Filled nodes are solved; ghosted ones are still ahead.</p>
 <pre class="mermaid">__MERMAID__</pre>
 
-<h2>Solved log</h2>
+<h2>Attempt log</h2>
 <div class="tblcard scroll"><table id="log"></table></div>
 </main>
 
@@ -957,8 +1106,9 @@ $('next').innerHTML = `Next up: <b>${STATS.next}</b>`;
 const tiles = [
   {v:`${STATS.solved}/${STATS.total}`, k:'solved', bar:100*STATS.solved/STATS.total},
   {v:STATS.recognition ? Math.round(100*STATS.recognition.rate)+'%' : '—', k:'pattern recognition'},
-  {v:STATS.retention ? Math.round(100*STATS.retention.rate)+'%' : '—', k:'review retention'},
+  {v:STATS.retention ? Math.round(100*STATS.retention.rate)+'%' : '—', k:'retention (7d+)'},
   {v:STATS.streak, k:'day streak'},
+  {v:STATS.days, k:'days practised'},
   {v:PROBLEMS.filter(p=>p.overdue!==null).length, k:'reviews due'},
 ];
 $('tiles').innerHTML = tiles.map(t => `<div class="tile"><div class="v">${t.v}</div>
@@ -967,17 +1117,18 @@ $('tiles').innerHTML = tiles.map(t => `<div class="tile"><div class="v">${t.v}</
 // hero — optimal first
 (function(){
   const o = STATS.optimalFirst;
-  if (!o){ const need = STATS.minRateN - STATS.solved;
+  if (!o){ const need = STATS.minRateN - STATS.judged;
     $('hero-opt').innerHTML = `<div class="fig none">not yet</div><div class="side">
-      <div class="t">Need ${need} more solve${need!==1?'s':''}</div>
-      <div class="d">A rate over ${STATS.solved} problem${STATS.solved!==1?'s':''} would be noise.
-      This switches on at ${STATS.minRateN} solved.</div></div>`; return; }
+      <div class="t">Need ${need} more attempt${need!==1?'s':''} with a frozen think-log</div>
+      <div class="d">A rate over ${STATS.judged} problem${STATS.judged!==1?'s':''} would be noise.
+      Only attempts you started with <code>./think.sh</code> count here — without the frozen plan I
+      can't tell a clean solve from a hinted one, so it stays out of the sample.</div></div>`; return; }
   const pct = Math.round(100*o.rate);
   const lvl = pct>=60 ? 'good' : pct>=40 ? 'watch' : 'gap';
   const msg = pct>=60 ? "You're finding the efficient idea yourself. That's the interview skill."
     : "You reach working code but often need help to optimise. Closing this is the priority.";
   $('hero-opt').innerHTML = `<div class="fig ${lvl}">${pct}%</div><div class="side">
-    <div class="t">of your last ${o.n} solo attempts reached optimal first</div>
+    <div class="t">of your last ${o.n} note-backed attempts reached optimal first</div>
     <div class="d">${msg}</div></div>`;
 })();
 
@@ -990,7 +1141,7 @@ $('diag').innerHTML = (STATS.diagnosis||[]).map(([lvl,obs,act]) =>
 ).join('') || '<p class="empty">No read yet.</p>';
 
 // attention
-const att = PROBLEMS.filter(p=>p.solved && p.attention>0)
+const att = PROBLEMS.filter(p=>p.attempted && p.attention>0)
   .sort((a,b)=>b.attention-a.attention).slice(0,8);
 $('attention').innerHTML = att.length
   ? '<thead><tr><th>#</th><th>Problem</th><th>Why it needs work</th><th>Pattern</th><th>Notes</th></tr></thead><tbody>'
@@ -1003,8 +1154,9 @@ $('attention').innerHTML = att.length
 // pattern mastery
 const pm = STATS.patternMastery||[];
 $('mastery').innerHTML = pm.length
-  ? '<thead><tr><th>Pattern</th><th class="num">Solved</th><th class="num">Optimal-first</th><th class="num">Recognised</th><th>Avg confidence</th></tr></thead><tbody>'
-    + pm.map(r=>`<tr><td>${esc(r.pattern)}</td><td class="num">${r.n}</td><td class="num">${r.optimal}%</td>
+  ? '<thead><tr><th>Pattern</th><th class="num">Attempts</th><th class="num">Optimal code</th><th class="num">Recognised</th><th>Avg confidence</th></tr></thead><tbody>'
+    + pm.map(r=>`<tr><td>${esc(r.pattern)}</td><td class="num">${r.n}</td>
+      <td class="num">${r.optimal==null?`${r.optimalCount}/${r.n}`:r.optimal+'%'}</td>
       <td class="num">${r.recog==null?'—':r.recog+'%'}</td><td>${confDots(r.conf)}</td></tr>`).join('') + '</tbody>'
   : '<tbody><tr><td class="empty">No patterns logged yet.</td></tr></tbody>';
 
@@ -1036,7 +1188,7 @@ $('queue').innerHTML = due.length
   : '<p class="empty">Nothing due. Do the next new problem.</p>';
 
 // solved log
-const log = PROBLEMS.filter(p=>p.solved).sort((a,b)=>b.date.localeCompare(a.date));
+const log = PROBLEMS.filter(p=>p.attempted).sort((a,b)=>b.date.localeCompare(a.date));
 $('log').innerHTML = log.length
   ? '<thead><tr><th>Date</th><th>#</th><th>Problem</th><th>Diff</th><th>Solo</th><th>Approach</th><th>Min</th><th>Pattern</th><th>Notes</th></tr></thead><tbody>'
     + log.map(p=>`<tr><td>${p.date}</td><td>${p.id}</td>
@@ -1115,9 +1267,9 @@ function draw(){
   // note-less solves, so its x-axis differs from optimal-first's)
   const cs = STATS.cognitionSeries||{};
   function trendLine(cid,eid,tid,labels,series,colour,label,emptyMsg){
-    const gap2 = STATS.minRateN - STATS.solved;
+    const gap2 = STATS.minRateN - STATS.judged;
     if(!series||!series.length){
-      need(eid, emptyMsg || (gap2>0 ? `Needs ${gap2} more solve${gap2!==1?'s':''} before this means anything.`
+      need(eid, emptyMsg || (gap2>0 ? `Needs ${gap2} more attempt${gap2!==1?'s':''} with a frozen think-log before this means anything.`
         : 'Not enough data yet.'));
       fillTable(tid,['Date',label],[]); return; }
     $(eid).style.display='none';
@@ -1130,8 +1282,8 @@ function draw(){
   }
   trendLine('c-opt','e-opt','t-opt',cs.optLabels,cs.optimal,cssv('--good'),'Optimal-first');
   trendLine('c-rec','e-rec','t-rec',cs.recLabels,cs.recognition,violet,'Recognised',
-    (cs.recognition && cs.recognition.length===0 && STATS.solved>=STATS.minRateN)
-      ? 'Log think-notes (your pre-code plan) to track this — I can\\'t read it from finished code.'
+    (cs.recognition && cs.recognition.length===0 && STATS.judged===0 && STATS.attempted>=STATS.minRateN)
+      ? 'Run ./think.sh before you code to track this — I can\\'t read it from finished code.'
       : null);
 
   // mistakes
@@ -1180,6 +1332,90 @@ def render(problems, stats):
             .replace("__STATS__", _js(stats)))
 
 
+DOC_FILES = ("README.md", "CLAUDE.md", "ROADMAP.md", "mistakes.md",
+             "templates/think-log.md", "templates/notes.md",
+             ".claude/commands/debrief.md", ".claude/commands/due.md",
+             ".claude/commands/assess.md", ".claude/commands/mock.md")
+
+# Claims that were in the prose and are NOT true of this code. Every one of them shipped, some in
+# four files at once, and nothing could tell us. If a phrase here reappears, the docs have drifted
+# back — fix the doc, or if the code changed to make the claim true, delete the line from this list.
+RETRACTED_CLAIMS = (
+    "proves your plan existed",      # the hook proves commit order, not plan-before-solving
+    "proof your plan predated",
+    "proof the plan predated",
+    "drops it a rung",               # a blank RESETS to box 1
+    "D+1, D+7, D+30",                # four rungs, and measured from the previous review
+    "paste it at /debrief",           # recognition needs the pre-committed think-log, not a late note
+    "problems 15, 30, 50",           # milestones are 10/20/35/50/65/75
+    "slug, difficulty, topic",       # none of those are read from progress.json; `topic` never existed
+    "tagged `communication`",        # not in MISTAKE_TAGS; validate() now rejects it outright
+    "## Approach before coding",     # heading doesn't exist; it's `## ⭐ THINK-LOG`
+    "What I got stuck on",           # heading is `## Where I got stuck`
+    "5 logged attempts for",         # optimal-first needs note-backed attempts, not any attempt
+    "5 logged reviews for retention",  # retention needs reviews a week or more apart
+    "per-pattern optimal-first %",   # that column is optimal-CODE; the rename was deliberate
+    "below 5 logged attempts",       # same note-backed denominator point
+    "at most 3 reviews",             # the cap was removed: it caused the backlog it warned about
+    "Cap the queue at 3",
+    "Do the top 3 and let the rest slide",
+)
+
+
+def check_docs():
+    """Pin the prose to the code. The docs describe vocabularies and schedules that live here as
+    constants, and they drifted apart twice — silently, because prose can't fail a test."""
+    for name in DOC_FILES:
+        f = ROOT / name
+        if not f.exists():
+            continue
+        text = f.read_text(encoding="utf-8")
+        for phrase in RETRACTED_CLAIMS:
+            assert phrase not in text, \
+                f"{name}: a retracted claim is back in the docs: {phrase!r}"
+    rules = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+    for value in SOLO + APPROACH + KNOWN_RECOG + ("unknown",):
+        assert f"`{value}`" in rules, \
+            f"CLAUDE.md never documents the {value!r} value, but validate() requires it"
+    for tag in MISTAKE_TAGS:
+        assert tag in rules, f"CLAUDE.md never documents the {tag!r} mistake tag"
+    assert "communication" not in MISTAKE_TAGS, \
+        "MISTAKE_TAGS gained 'communication' — ROADMAP.md and mock.md say it can't be a tag"
+    # the review schedule, stated in calendar terms in README
+    assert INTERVALS == [1, 7, 30, 90], "INTERVALS changed — update README/due.md/CLAUDE.md prose"
+    assert "+1, +8, +38, +128" in (ROOT / "README.md").read_text(encoding="utf-8"), \
+        "README's cumulative review dates no longer match INTERVALS"
+
+
+def check_artifact_fresh():
+    """dashboard.html is a committed build artifact, so it can silently fall behind the
+    generator — two fix commits (an XSS sanitiser and a layout clamp) once landed in this
+    file and never reached the page a browser actually loads. `--test` passed the whole
+    time, because it only ever exercised render() in memory.
+
+    Re-renders using the date baked INTO the page rather than today's date, so this checks
+    "was this file produced by the current generator and the current progress.json?" and
+    doesn't fail merely because a day has passed since the last build."""
+    page = ROOT / "dashboard.html"
+    if not page.exists():
+        return
+    html = page.read_text(encoding="utf-8")
+    marker = '"today": "'
+    if marker not in html:
+        raise AssertionError("dashboard.html has no build date - run python3 build_dashboard.py")
+    built = html.split(marker, 1)[1][:10]
+    progress = json.loads((ROOT / "progress.json").read_text(encoding="utf-8"))
+    try:
+        fresh = render(*build(progress, date.fromisoformat(built)))
+    except ValueError as ex:
+        # a data problem is not a staleness problem — say which one it is
+        raise AssertionError(f"progress.json is invalid, so freshness can't be checked: {ex}")
+    if html != fresh:
+        raise AssertionError(
+            "dashboard.html is STALE - it does not match what the current generator and "
+            "progress.json produce. Run: python3 build_dashboard.py && git add dashboard.html")
+
+
 def demo():
     """Self-checks for the only non-trivial logic here: review dates and streaks."""
     t = date(2026, 8, 1)
@@ -1202,7 +1438,7 @@ def demo():
                         "reviews": ["2026-08-02"]}, t) == date(2026, 8, 5)
     assert next_review({"date": "2026-08-01", "confidence": 1, "reviews": []}, t) == date(2026, 8, 2)
 
-    # retention loop: a blanked review drops a rung and returns the problem next day
+    # retention loop: a blanked review RESETS to box 1 and returns the problem next day
     assert next_review({"date": "2026-08-01", "confidence": 4,
                         "reviews": [{"date": "2026-08-05", "result": "blank"}]}, t) == date(2026, 8, 6)
     # pass then blank -> rung back to 0, retest tomorrow off the blank date
@@ -1235,7 +1471,7 @@ def demo():
     assert st["solved"] == 0 and st["next"].startswith("1768.")
     probs, st = build([{"id": 1768, "date": "2026-08-01", "confidence": 3,
                         "pattern": "two-index-interleave", "minutes": 20, "approach": "optimal",
-                        "solo": "solved", "reviews": []}], t)
+                        "solo": "solved", "recognized": "self", "reviews": []}], t)
     assert st["solved"] == 1 and st["easy"] == 1 and st["next"].startswith("1071.")
     assert [p for p in probs if p["id"] == 1768][0]["due"] == "2026-08-02"
 
@@ -1253,6 +1489,59 @@ def demo():
     assert optimal_first_rate([mk(i) for i in range(4)]) is None
     r = optimal_first_rate([mk(i, approach="optimal" if i < 3 else "brute") for i in range(6)])
     assert r == (3 / 6, 6), r
+
+    # --- optimal-first means optimal AND solo AND unhinted -----------------------------
+    # optimal code reached off an editorial is honestly logged `optimal`, but is NOT optimal-first
+    hinted = [mk(i, recognized="hinted") for i in range(6)]
+    assert optimal_first_rate(hinted) == (0.0, 6), optimal_first_rate(hinted)
+    # nor is optimal code that never finished inside the timer
+    timed_out = [mk(i, solo="timeout") for i in range(6)]
+    assert optimal_first_rate(timed_out) == (0.0, 6), optimal_first_rate(timed_out)
+    # a clean solo solve counts; `missed` (didn't foresee the pattern, still wrote it unaided) counts
+    assert optimal_first_rate([mk(i, recognized="missed") for i in range(6)]) == (1.0, 6)
+    # no frozen think-log -> excluded from the sample entirely, neither credit nor penalty
+    assert optimal_first_rate([mk(i, recognized="unknown") for i in range(6)]) is None
+    half = [mk(i, recognized="unknown") for i in range(5)] + \
+           [mk(5 + i, recognized="hinted") for i in range(5)]
+    assert optimal_first_rate(half) == (0.0, 5), "unknowns excluded, hinted counted as a miss"
+    # the chart, the trend and the hero must all draw on the same population and predicate
+    series = cognition_series(hinted)["optimal"]          # _roll yields percentages, not fractions
+    assert series and all(v == 0 for v in series), \
+        f"the trend chart must apply the same predicate as the hero, got {series}"
+    # ...and draw from the same POPULATION: note-backed only. With unknowns mixed in, an unfiltered
+    # series would score them as misses and plot a dip the hero doesn't show.
+    mixed_notes = [mk(i, recognized="self") for i in range(5)] + \
+                  [mk(5 + i, recognized="unknown", approach="brute") for i in range(5)]
+    series2 = cognition_series(mixed_notes)["optimal"]
+    assert series2 and all(v == 100 for v in series2), \
+        f"unscorable attempts must be excluded from the chart, not counted as misses: {series2}"
+    assert "STATS.minRateN - STATS.judged" in TEMPLATE, \
+        "the hero's 'not yet' gate must count note-backed attempts, like the rate it gates"
+    # every small-n gate must count the population ITS rate draws from. Asserted as a negative over
+    # the whole template, because the last two times this broke it was a NEW gate copying the old
+    # wrong counter — a positive check on the gates that exist today wouldn't have caught either.
+    for wrong in ("STATS.minRateN - STATS.solved", "STATS.solved>=STATS.minRateN",
+                  "${STATS.solved} problem", "STATS.minRateN - STATS.attempted"):
+        assert wrong not in TEMPLATE, f"a small-n gate is counting the wrong population: {wrong}"
+
+    # stats["judged"] must be the note-backed count, not a copy of another counter
+    jmix = [mk(i, recognized="self") for i in range(3)] + \
+           [mk(3 + i, recognized="unknown") for i in range(4)]
+    jst = build(jmix, t)[1]
+    assert (jst["judged"], jst["attempted"]) == (3, 7), (jst["judged"], jst["attempted"])
+
+    # the diagnosis arrow must use the same population AND predicate as the hero, or the page
+    # says "slipping" about a number that didn't move
+    hinted_dip = [mk(i) for i in range(10)] + [mk(10 + i, recognized="hinted") for i in range(10)]
+    assert any("slipping" in f[1] for f in diagnosis(hinted_dip, [])), \
+        "10 clean solves then 10 hinted ones must read as a decline in optimal-first"
+    # the tail must be entries that would score as MISSES if wrongly included — an unknown that is
+    # otherwise clean satisfies the predicate anyway, so filtering it would change nothing and the
+    # assertion would pass with the population filter removed
+    unknown_tail = [mk(i) for i in range(10)] + \
+                   [mk(10 + i, recognized="unknown", approach="brute") for i in range(10)]
+    assert not any("slipping" in f[1] for f in diagnosis(unknown_tail, [])), \
+        "unscorable attempts must not be read as a decline — they're absent, not failures"
     assert recognition_rate([mk(i, recognized="self" if i % 2 else "missed")
                              for i in range(6)])[0] == 0.5
     # recognition can only be scored from a think-note: 'unknown' is excluded, never guessed
@@ -1266,20 +1555,116 @@ def demo():
     cs = cognition_series(mixed2)
     assert cs["recLabels"] and len(cs["recognition"]) == len(cs["recLabels"])
 
-    # retention: None below MIN_RATE_N reviews; fraction passed above; legacy strings = pass
+    # retention counts only reviews at the 7-day rung or beyond (rung >= 1), so a 1-day retest —
+    # whether it's a problem's first review or one minted by a blank — never inflates it.
     passd = {"date": "2026-08-05", "result": "pass"}
     blank = {"date": "2026-08-05", "result": "blank"}
-    assert retention_rate([mk(0, reviews=[passd, blank])]) is None  # only 2 reviews
-    ret = retention_rate([mk(0, reviews=[passd, passd, "2026-08-06"]), mk(1, reviews=[blank, blank])])
-    assert ret == (3 / 5, 5), ret   # 3 passes (2 explicit + 1 legacy string) of 5 reviews
+    def ent(i, *spec, conf=4, solve="2026-08-01"):
+        """An entry whose reviews sit at real calendar dates: spec is (gap_days, result) pairs."""
+        d, out = date.fromisoformat(solve), []
+        for gap, res in spec:
+            d += timedelta(days=gap)
+            out.append({"date": d.isoformat(), "result": res, "confidenceWas": conf})
+        return {**mk(i), "date": solve, "confidence": conf, "reviews": out}
+
+    # one qualifying review (the 7-day one) — below the floor, so no number
+    assert retention_rate([ent(0, (1, "pass"), (7, "blank"))]) is None
+    # six reviews, every one a next-day retest: nothing qualifies, however many there are
+    assert retention_rate([ent(0, *[(1, "pass")] * 6)]) is None, \
+        "next-day retests must never count toward retention, at any volume"
+    # a full ladder: gaps 1/7/30/90 -> three qualifying per problem
+    long_run = [ent(i, (1, "pass"), (7, "pass"), (30, "pass"), (90, "blank")) for i in range(2)]
+    assert retention_rate(long_run) == (4 / 6, 6), retention_rate(long_run)
+
+    # THE REGRESSION: a thrashing problem must not read as half-decent. Each blank resets to box 1
+    # and mints one cheap next-day retest; passing that retest is not retention. Counting every
+    # review equally scored this 50% — the failure diluted by the cheap wins it caused. Counting
+    # only week-plus gaps, every qualifying review here is a blank: 0%.
+    thrash = [ent(0, *[(7, "blank"), (1, "pass")] * 6)]
+    assert retention_rate(thrash) == (0.0, 6), retention_rate(thrash)
+    # ...while genuine recovery still counts: passes at 7 and 30 days are real retention
+    recovered = [ent(i, (1, "pass"), (7, "pass"), (30, "pass")) for i in range(3)]
+    assert retention_rate(recovered) == (6 / 6, 6), retention_rate(recovered)
+
+    # confidence <= 2 HALVES the scheduled gap, so rung 1 is a 3-day retest. Going by rung would
+    # file that under "a week or longer"; going by the calendar correctly leaves it out.
+    shaky = [ent(i, (1, "pass"), (3, "pass"), (15, "pass"), conf=2) for i in range(5)]
+    assert retention_rate(shaky) == (5 / 5, 5), \
+        f"only the 15-day review may count for a shaky problem, got {retention_rate(shaky)}"
+    # a review taken LATE counts for the gap actually endured, which the rung can't see
+    late = [ent(i, (20, "pass")) for i in range(5)]
+    assert retention_rate(late) == (5 / 5, 5), "a 20-day first review is week-plus recall"
+
+    # legacy bare-string reviews still read as passes and still carry real dates
+    legacy = [{**mk(i), "date": "2026-08-01",
+               "reviews": ["2026-08-02", "2026-08-09", "2026-09-08"]} for i in range(3)]
+    assert retention_rate(legacy) == (6 / 6, 6), retention_rate(legacy)
+    # out-of-order reviews would silently mis-measure every gap, so validate() rejects them
+    try:
+        validate([{**mk(0), "date": "2026-08-01",
+                   "reviews": ["2026-09-08", "2026-08-09"]}])
+    except ValueError as ex:
+        assert "run forwards" in str(ex), ex
+    else:
+        raise AssertionError("validate() accepted out-of-order review dates")
+    # ...and the other half of the same rule: a review cannot predate its own solve
+    try:
+        validate([{**mk(0), "date": "2026-08-10", "reviews": ["2026-08-01"]}])
+    except ValueError as ex:
+        assert "before you solved it" in str(ex), ex
+    else:
+        raise AssertionError("validate() accepted a review dated before the solve")
+
+    # A blank RESETS to box 1; it does not drop one rung. Every other test of this happens to be
+    # non-discriminating (reset and decrement agree), so this is the case that actually pins it:
+    # pass, pass, blank -> rung 0 -> retest tomorrow (+1). Decrementing would give rung 1 (+7).
+    assert next_review({"date": "2026-08-01", "confidence": 4,
+                        "reviews": ["2026-08-02", "2026-08-09",
+                                    {"date": "2026-09-08", "result": "blank"}]},
+                       date(2026, 12, 1)) == date(2026, 9, 9), \
+        "a blank must reset to box 1, not drop a single rung"
+
+    # the recognition arrow needs the same population filter the optimal-first arrow got
+    # (the recognition flags are the ones mentioning the think-note; the arrow reads
+    #  ", trending down" — with an unfiltered population this reports 100% AND trending down)
+    rec_tail = [mk(i, recognized="self") for i in range(10)] + \
+               [mk(10 + i, recognized="unknown") for i in range(10)]
+    rec_flags = [f[1] for f in diagnosis(rec_tail, []) if "think-note" in f[1]]
+    assert rec_flags, "expected a recognition flag on this fixture"
+    assert not any("trending down" in f for f in rec_flags), \
+        f"unscorable attempts must not be read as a recognition decline: {rec_flags}"
+
+    # withheld rows sort by their optimal RATIO, not by confidence alone — without the tiebreak a
+    # 0/2 pattern with high confidence sorts below a 2/2 pattern with lower confidence
+    pmr = lambda pat, ap, conf: {"attempted": True, "pattern": pat, "confidence": conf,
+                                 "recognized": "self", "approach": ap}
+    tb = pattern_mastery([pmr("a", "brute", 5)] * 2 + [pmr("b", "optimal", 4)] * 2)
+    assert [r["pattern"] for r in tb] == ["a", "b"], tb
+
+    # the retention floor is a week; a 6-day gap must not sneak in as "week or longer"
+    six_day = [ent(i, (6, "pass")) for i in range(5)]
+    assert retention_rate(six_day) is None, "a 6-day gap is not week-plus recall"
+
+    # per-pattern percentages are withheld below MIN_PATTERN_N — one problem is not a rate
+    def pm_row(pat, approach="optimal", recognized="self", conf=4):
+        return {"attempted": True, "pattern": pat, "confidence": conf,
+                "recognized": recognized, "approach": approach}
+    thin = pattern_mastery([pm_row("p"), pm_row("p", approach="brute")])
+    assert thin[0]["optimal"] is None and thin[0]["recog"] is None, thin
+    assert thin[0]["n"] == 2 and thin[0]["optimalCount"] == 1   # shown as "1/2" instead
+    thick = pattern_mastery([pm_row("q"), pm_row("q"), pm_row("q", approach="brute")])
+    assert thick[0]["optimal"] == 67 and thick[0]["recog"] == 100, thick
+    # a withheld percentage is not evidence of weakness, so those rows sort last
+    order = pattern_mastery([pm_row("thin")] + [pm_row("weak", approach="brute")] * 3)
+    assert [r["pattern"] for r in order] == ["weak", "thin"], order
     # overconfident: reads confidenceWas snapshot, NOT current confidence. The key case is
     # "felt sure (5), blanked, confidence then dropped to 2" — must still flag.
     blank_was5 = {"date": "2026-08-05", "result": "blank", "confidenceWas": 5}
     over = overconfident([
-        {"solved": True, "confidence": 2, "reviews": [blank_was5]},   # dropped after -> still flags
-        {"solved": True, "confidence": 5, "reviews": [passd]},        # confident but passed -> no
-        {"solved": True, "confidence": 2, "reviews": [blank]},        # blanked but wasn't confident -> no
-        {"solved": True, "confidence": 5, "reviews": [blank]}])       # legacy (no snapshot) falls back -> flags
+        {"attempted": True, "confidence": 2, "reviews": [blank_was5]},  # dropped after -> still flags
+        {"attempted": True, "confidence": 5, "reviews": [passd]},       # confident but passed -> no
+        {"attempted": True, "confidence": 2, "reviews": [blank]},       # blanked but wasn't confident -> no
+        {"attempted": True, "confidence": 5, "reviews": [blank]}])      # legacy (no snapshot) -> flags
     assert len(over) == 2, over
 
     # trend: needs two full-ish windows; None with one
@@ -1309,8 +1694,8 @@ def demo():
 
     # pattern_mastery sorts weakest (lowest optimal%) first
     pm = pattern_mastery([
-        {"solved": True, "pattern": "strong", "confidence": 5, "recognized": "self", "approach": "optimal"},
-        {"solved": True, "pattern": "weak", "confidence": 2, "recognized": "missed", "approach": "brute"},
+        {"attempted": True, "pattern": "strong", "confidence": 5, "recognized": "self", "approach": "optimal"},
+        {"attempted": True, "pattern": "weak", "confidence": 2, "recognized": "missed", "approach": "brute"},
     ])
     assert pm[0]["pattern"] == "weak", pm
 
@@ -1336,7 +1721,8 @@ def demo():
     assert st_thin[2] is None, st_thin
 
     # validate() rejects bad data with a clear message instead of crashing later
-    ok = {"approach": "optimal", "confidence": 3}  # valid so the checked field is the one that fires
+    # every non-checked field valid, so the field under test is the one that fires
+    ok = {"approach": "optimal", "confidence": 3, "solo": "solved", "recognized": "self"}
     for bad, needle in [
         ([{"id": 99999, "date": "2026-08-01", **ok}], "not a LeetCode 75"),
         ([{"id": 1768, "date": "08/01/2026", **ok}], "not YYYY-MM-DD"),
@@ -1363,18 +1749,23 @@ def demo():
     assert isinstance(st2["diagnosis"], list) and st2["diagnosis"]
 
     # diagnosis integration: overconfidence + overdue flags actually fire (not just problems=[])
-    oc = [mk(i, conf=5, reviews=[blank_was5]) for i in range(6)]  # blanked while confident, long ago
+    # blanked while confident, long ago. Solve dates are pinned before the review date — a review
+    # can't predate its solve, and validate() now enforces that.
+    oc = [{**mk(i, conf=5, reviews=[blank_was5]), "date": "2026-08-01"} for i in range(6)]
     probs3, _ = build(oc, date(2027, 1, 1))                        # -> overdue + overconfident
     flags3 = diagnosis(oc, probs3)
     assert any("blanked a review on" in f[1] for f in flags3)      # overconfidence flag
     assert any("overdue" in f[1] for f in flags3)                  # overdue flag
     # pattern_mastery: unknown-recognition pattern shows recog None, not 0
-    pm3 = pattern_mastery([{"solved": True, "pattern": "u", "confidence": 3,
+    pm3 = pattern_mastery([{"attempted": True, "pattern": "u", "confidence": 3,
                             "recognized": "unknown", "approach": "brute"}])
     assert pm3[0]["recog"] is None
 
-    # render() neutralises </script> in JSON-inlined user fields so the page can't be broken
-    html = render(*build([mk(0, mistakes=["</script><b>x"])], t))
+    # render() neutralises </script> in JSON-inlined user fields so the page can't be broken.
+    # Routed through `pattern` (free text, and the field validate() still allows to hold
+    # anything) rather than `mistakes`, which is now pinned to MISTAKE_TAGS — testing the
+    # _js() sink alone would keep passing if render() stopped calling it.
+    html = render(*build([mk(0, pattern="</script><b>x")], t))
     assert "</script><b>x" not in html and "<\\/script>" in html
     # ...and the pattern field, which reaches the mermaid <pre> (via _mm) and the client
     # innerHTML tables (via esc). The payload may still sit INERT inside the JS string
@@ -1388,6 +1779,107 @@ def demo():
     assert "(/pre)(img" in pre                                        # payload neutralised to text
     assert "<\\/pre>" in html2                                        # _js escaped the JSON copy's </
     assert _mm(evil) == "(/pre)(img src=x onerror=alert(1))"
+
+    # --- stuck attempts don't count as solved, but do stay visible -------------------
+    st_stuck = build([mk(0, approach="stuck", solo="timeout")], t)[1]
+    assert st_stuck["solved"] == 0, "a 'stuck' attempt must not fill the progress bar"
+    assert st_stuck["next"].startswith("1768."), "a 'stuck' problem must be re-served cold"
+    pr_stuck = build([mk(0, approach="stuck", solo="timeout")], t)[0]
+    assert pr_stuck[0]["attempted"] and not pr_stuck[0]["solved"]
+    assert pr_stuck[0]["attention"] > 0, "a 'stuck' attempt must still need attention"
+
+    # a stuck problem must not ALSO sit in the review queue — it's served cold by "Next up",
+    # and queueing it would double-count it and inflate the "reviews due" tile
+    q_probs, q_st = build([mk(0), {**mk(1), "approach": "stuck", "solo": "timeout"}],
+                          date(2026, 8, 10))
+    assert [p for p in q_probs if p["id"] == ids[1]][0]["due"] == "", \
+        "a 'stuck' problem must not enter the review queue"
+    assert q_st["solved"] == 1 and q_st["attempted"] == 2
+    # the small-n gates count attempts, because that's what every rate's denominator is —
+    # gating on `solved` made the hero and the diagnosis print different counts on one page
+    # asserted as a negative, so it catches ANY gate drifting back to solves — checking that
+    # the right string appears *somewhere* still passes when one of two gates is reverted
+    for wrong in ("STATS.minRateN - STATS.solved", "STATS.solved>=STATS.minRateN",
+                  "${STATS.solved} problem"):
+        assert wrong not in TEMPLATE, f"a small-n gate is counting solves, not attempts: {wrong}"
+    assert "STATS.judged===0 && STATS.attempted>=STATS.minRateN" in TEMPLATE, \
+        "the 'you have no notes at all' message must fire only when judged is actually 0"
+    # a stuck attempt is not a solve time (it would inflate the median)
+    assert solve_time_trend([{**mk(i), "approach": "stuck", "solo": "timeout", "minutes": 45}
+                             for i in range(6)], "easy") is None
+
+    # item-3 wiring lives in the JS template, so assert on its text — there's no JS runtime here
+    assert "p.attempted && p.attention>0" in TEMPLATE, \
+        "'Needs attention' must list logged attempts, so a stuck problem stays visible"
+    assert "k:'days practised'" in TEMPLATE
+
+    # --- a review day is a practice day ----------------------------------------------
+    # solved 3 days ago, reviewed yesterday -> the streak is alive, not zeroed. Without this
+    # the dashboard told you to clear the queue first and then zeroed the streak for doing it.
+    e_rev = {**mk(0), "date": (t - timedelta(days=3)).isoformat(),
+             "reviews": [{"date": (t - timedelta(days=1)).isoformat(), "result": "pass"}]}
+    assert build([e_rev], t)[1]["streak"] == 1, "clearing reviews must keep the streak alive"
+    assert build([e_rev], t)[1]["days"] == 2, "days practised counts solve days + review days"
+    # a review the day after a solve EXTENDS the run rather than just preserving it
+    e_ext = {**mk(0), "date": (t - timedelta(days=1)).isoformat(),
+             "reviews": [{"date": t.isoformat(), "result": "pass"}]}
+    assert build([e_ext], t)[1]["streak"] == 2
+    # solve and review on the same day is one day of practice, not two
+    e_same = {**mk(0), "reviews": [{"date": mk(0)["date"], "result": "pass"}]}
+    assert build([e_same], t)[1]["days"] == 1
+    # legacy bare-string reviews must survive the new date comprehensions in streak/days
+    e_legacy = {**mk(0), "date": (t - timedelta(days=1)).isoformat(),
+                "reviews": [t.isoformat()]}
+    assert build([e_legacy], t)[1]["streak"] == 2, "a legacy bare-date review must still count"
+
+    # --- the solo vocabulary matches what the templates actually tell you to write ----
+    assert attention_reason(mk(0, solo="wrong-answer")).startswith("failed solo"), \
+        "'wrong-answer' is the documented value; matching 'wrong' silently scored it 0"
+    assert attention_score(mk(0, solo="wrong-answer", conf=5, approach="optimal"), None) >= 2
+
+    # --- validate() rejects the typos that used to vanish silently --------------------
+    good = mk(0)  # a fully valid entry; each case below breaks exactly one field
+    # Each case asserts on the MESSAGE, not merely that some ValueError fired — several of
+    # these are also caught by a later, vaguer check, so a bare "raises" assertion passes even
+    # with the guard removed and silently stops testing anything.
+    for bad, needle, why in [
+        ({**good, "recognized": "Self"}, "recognized", "capitalised recognized"),
+        ({**good, "recognized": "sefl"}, "recognized", "typo'd recognized"),
+        ({**good, "solo": "wrong"}, "solo", "solo outside the template vocabulary"),
+        ({**good, "mistakes": ["off by one"]}, "mistake tag", "near-miss mistake tag"),
+        ({**good, "mistakes": "off-by-one"}, "must be a list of tags", "mistakes as a bare string"),
+        ({**good, "pattern": ["two-pointers"]}, "pattern", "pattern as a list"),
+        ({**good, "reviews": [{"date": "2026-08-05", "result": "blank", "confidenceWas": True}]},
+         "confidenceWas", "boolean confidenceWas (JSON true would mean confidence 1)"),
+    ]:
+        try:
+            validate([bad])
+        except ValueError as ex:
+            assert needle in str(ex), f"{why}: expected {needle!r} in message, got {ex}"
+        else:
+            raise AssertionError(f"validate() accepted {why}: {bad!r}")
+    # ...and the malformed shapes that used to raise a raw TypeError instead of a message
+    for arg, needle, why in [
+        ([1768], "must be an object", "a bare int entry"),
+        ([None], "must be an object", "a null entry"),
+        ({"id": 1768}, "must be a JSON array", "a top-level object instead of a list"),
+        ("[]", "must be a JSON array", "a top-level string"),
+        (5, "must be a JSON array", "a top-level number"),
+        ([{**good, "reviews": 5}], "reviews must be a list", "reviews as a non-list"),
+    ]:
+        try:
+            validate(arg)
+        except ValueError as ex:
+            assert needle in str(ex), f"{why}: expected {needle!r} in message, got {ex}"
+        except TypeError as ex:
+            raise AssertionError(f"validate() raised a raw TypeError on {why}: {ex}")
+        else:
+            raise AssertionError(f"validate() accepted {why}")
+
+    # the docs must still describe this code (see check_docs), and the committed page must match
+    # the generator (see check_artifact_fresh)
+    check_docs()
+    check_artifact_fresh()
     print("all checks passed")
 
 
@@ -1396,7 +1888,7 @@ if __name__ == "__main__":
         demo()
         sys.exit(0)
     try:
-        progress = json.loads((ROOT / "progress.json").read_text())
+        progress = json.loads((ROOT / "progress.json").read_text(encoding="utf-8"))
     except json.JSONDecodeError as ex:
         sys.exit(f"progress.json is not valid JSON: {ex}. "
                  f"A trailing comma or an unquoted value is the usual cause.")
@@ -1404,6 +1896,7 @@ if __name__ == "__main__":
         problems, stats = build(progress, date.today())
     except ValueError as ex:
         sys.exit(f"progress.json: {ex}")
-    (ROOT / "dashboard.html").write_text(render(problems, stats))
-    print(f"dashboard.html — {stats['solved']}/{stats['total']} solved, "
+    (ROOT / "dashboard.html").write_text(render(problems, stats), encoding="utf-8")
+    # plain ASCII: this line goes to stdout, which is not always UTF-8 (cron, LC_ALL=C)
+    print(f"dashboard.html - {stats['solved']}/{stats['total']} solved, "
           f"{stats['streak']} day streak, next: {stats['next']}")
