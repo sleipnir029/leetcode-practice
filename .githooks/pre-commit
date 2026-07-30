@@ -7,8 +7,13 @@
 #
 # Only fires when progress.json is actually staged, so ordinary doc/code commits are untouched.
 set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
 
-git diff --cached --name-only | grep -qxF progress.json || exit 0
+# No pipe into `grep -q` here, deliberately: grep exits on the first match, the upstream `git diff`
+# dies of SIGPIPE (141), and under `pipefail` that makes a SUCCESSFUL match report failure — so the
+# `|| exit 0` fired every time and the hook silently never rebuilt anything. Ask git directly.
+staged=$(git diff --cached --name-only -- progress.json)
+[ -n "$staged" ] || exit 0
 
-python3 build_dashboard.py
+python3 build_dashboard.py >/dev/null
 git add dashboard.html
