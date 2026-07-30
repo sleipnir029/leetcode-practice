@@ -13,6 +13,7 @@ cd "$(dirname "$0")"
 # git silently *ignores* a non-executable hook (it only prints a hint), so the guard can
 # vanish without a word after a clone or a chmod. Re-assert the bit every run.
 [ -x .githooks/commit-msg ] || chmod +x .githooks/commit-msg
+[ -x .githooks/pre-commit ] || chmod +x .githooks/pre-commit
 
 id="${1:-}"
 [ -z "$id" ] && { echo "usage: ./think.sh <leetcode-id>   (e.g. ./think.sh 1768)"; exit 1; }

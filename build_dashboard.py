@@ -631,8 +631,10 @@ def diagnosis(solved, problems):
         flags.append((
             "watch",
             f"Building your baseline. You've logged {n} of the {MIN_RATE_N} attempts needed before "
-            f"the evaluation can say anything trustworthy.",
-            f"Just keep going — the mistakes chart is already live (it's raw counts, no threshold); "
+            f"the evaluation can say anything trustworthy."
+            + (" Nothing on this page is broken — the rest of it appears as you feed it."
+               if n == 0 else ""),
+            f"Just keep going — mistakes are counted from the first one (raw counts, no threshold); "
             f"{left} more problem{'s' if left != 1 else ''} and I'll start calling out a *recurring* "
             f"one. Optimal-first and recognition need {note_gap} more started with ./think.sh, since "
             f"both are scored only from the frozen note."))
@@ -895,6 +897,20 @@ h2 .num{color:var(--muted);font-weight:600;font-size:1rem;margin-left:.5rem}
  padding:1.1rem 1.3rem;margin-bottom:.5rem;font-size:1.15rem;max-width:72ch}
 .next b{color:var(--good-ink)}
 
+/* [hidden] lives in the UA stylesheet, so any author rule setting display (.grid2{display:grid})
+   silently beats it and the "hidden" section renders anyway. !important is the fix. */
+[hidden]{display:none !important}
+
+/* The day-one block. A card only appears once it has something to say (see hideEmpty below),
+   so on an empty repo the page is this one instruction instead of eleven "no data yet" cards. */
+.start{background:var(--surface);border:1px solid var(--border);border-radius:14px;
+ padding:1.3rem 1.4rem;margin-bottom:1.25rem;max-width:72ch}
+.start h3{margin:0 0 .5rem;font-size:1.25rem}
+.start p{margin:.4rem 0;color:var(--ink-2)}
+.start code{background:var(--surface-2);border:1px solid var(--border);border-radius:6px;
+ padding:.15rem .45rem;font-size:.95em}
+.start .cmd{display:block;padding:.7rem .9rem;margin:.8rem 0;font-size:1.05rem;color:var(--good-ink)}
+
 /* ---- diagnosis ---- */
 .diag{display:flex;flex-direction:column;gap:.85rem;margin-bottom:.5rem}
 .flag{background:var(--surface);border:1px solid var(--border);border-left-width:6px;
@@ -973,13 +989,14 @@ has enough data to be honest.</p>
 
 <div class="next" id="next"></div>
 <div class="tiles" id="tiles"></div>
+<div class="start" id="start" hidden></div>
 
 <h2>The one number that matters most</h2>
 <p class="lead">In an interview, the test isn't "did you solve it" — it's "did you find the
 efficient idea yourself." This is the share of your recent note-backed attempts that reached the optimal
 approach <em>before</em> any help.</p>
 <div class="hero" id="hero-opt"></div>
-<div class="grid2">
+<div class="grid2" id="s-trend">
   <div class="chartbox"><h3>Optimal-first, over time</h3>
     <div class="cwrap" role="img" aria-label="Line chart of optimal-first rate over recent solves. Numbers in the table below.">
       <canvas id="c-opt" aria-hidden="true"></canvas><div class="chart-empty" id="e-opt"></div></div>
@@ -994,6 +1011,7 @@ approach <em>before</em> any help.</p>
   </div>
 </div>
 
+<section id="s-diag">
 <h2>Your read right now</h2>
 <div class="guide"><dl>
   <dt>What</dt><dd>A plain-language summary of what the numbers below are saying today.</dd>
@@ -1002,12 +1020,16 @@ approach <em>before</em> any help.</p>
     <b style="color:var(--gap-ink)">▼ Gap</b> = the thing to fix first.</dd>
 </dl></div>
 <div class="diag" id="diag"></div>
+</section>
 
+<section id="s-att">
 <h2>Needs attention <span class="num">weakest first</span></h2>
 <p class="lead">Your logged attempts, ranked by how much they still need work — low confidence,
 a failed solo attempt, a brute-force-only solution, or an overdue review. Start reviews here.</p>
 <div class="tblcard scroll"><table id="attention"><caption>Ranked most-to-least in need of a revisit.</caption></table></div>
+</section>
 
+<section id="s-mist">
 <h2>Recurring mistakes</h2>
 <p class="lead">The bug categories you actually hit, counted. A tall bar isn't bad luck — it's a
 habit worth a targeted 30-second check before you run your code.</p>
@@ -1016,14 +1038,18 @@ habit worth a targeted 30-second check before you run your code.</p>
   <details id="d-mist"><summary>Show these numbers as a table</summary>
     <div class="scroll"><table id="t-mist"></table></div></details>
 </div>
+</section>
 
+<section id="s-mastery">
 <h2>Pattern mastery <span class="num">weakest first</span></h2>
 <p class="lead">Per pattern: how often you reached optimal, how often you recognised it, and your
 average confidence. Low rows are patterns you've technically attempted but haven't truly
 internalised. Below 3 attempts in a pattern the percentages are withheld and you get the raw count
 instead (<code>1/2</code>) — one problem is not a rate.</p>
 <div class="tblcard scroll"><table id="mastery"></table></div>
+</section>
 
+<section id="s-prog">
 <h2>Progress</h2>
 <p class="lead">How far through the 75 you are, and the easy/medium split. 53 of the 75 are
 Medium, so most days are the longer session — pace accordingly.</p>
@@ -1041,14 +1067,18 @@ Medium, so most days are the longer session — pace accordingly.</p>
       <div class="scroll"><table id="t-diff"></table></div></details>
   </div>
 </div>
+</section>
 
+<section id="s-sec">
 <h2>Sections <span class="num">22 topics</span></h2>
 <p class="lead">Completion across the study plan's own 22 sections, in order. The dots show your
 average confidence where you've solved something.</p>
 <div class="chartbox"><div class="cwrap tall" role="img" aria-label="Bar chart of solved vs remaining problems per section. Numbers in the table below.">
   <canvas id="c-sec" aria-hidden="true"></canvas></div></div>
 <div class="tblcard scroll"><table id="sections"></table></div>
+</section>
 
+<section id="s-queue">
 <h2>Review queue</h2>
 <p class="lead">Spaced repetition: each solved problem returns on four rungs — 1, 7, 30 then 90 days,
 each measured from the previous review (sooner if you were shaky; a blank sends it back to rung one).
@@ -1057,14 +1087,19 @@ keeps your streak alive. Cleared daily this peaks around 3/day with clean recall
 resets a problem to box 1 and mints a fresh ladder, so a long queue usually means recall is slipping,
 not that you skipped days. Check the retention number before you blame the calendar.</p>
 <div id="queue"></div>
+</section>
 
+<section id="s-map">
 <h2>Mind map <span class="num">section → pattern → problem</span></h2>
 <p class="lead">How the pieces connect. The middle layer — the pattern — is what transfers to an
 unseen interview question. Filled nodes are solved; ghosted ones are still ahead.</p>
 <pre class="mermaid">__MERMAID__</pre>
+</section>
 
+<section id="s-log">
 <h2>Attempt log</h2>
 <div class="tblcard scroll"><table id="log"></table></div>
+</section>
 </main>
 
 <script>
@@ -1103,26 +1138,36 @@ $('theme').onclick = () => { theme = theme === 'dark' ? 'light' : 'dark'; applyT
 /* ---------- static content ---------- */
 $('next').innerHTML = `Next up: <b>${STATS.next}</b>`;
 
+// A rate with no sample is dropped, not shown as a dash. The counts below it are honest at n=1,
+// and six tiles where two read "—" makes the whole row look broken rather than young.
 const tiles = [
   {v:`${STATS.solved}/${STATS.total}`, k:'solved', bar:100*STATS.solved/STATS.total},
-  {v:STATS.recognition ? Math.round(100*STATS.recognition.rate)+'%' : '—', k:'pattern recognition'},
-  {v:STATS.retention ? Math.round(100*STATS.retention.rate)+'%' : '—', k:'retention (7d+)'},
+  STATS.recognition && {v:Math.round(100*STATS.recognition.rate)+'%', k:'pattern recognition'},
+  STATS.retention && {v:Math.round(100*STATS.retention.rate)+'%', k:'retention (7d+)'},
   {v:STATS.streak, k:'day streak'},
   {v:STATS.days, k:'days practised'},
-  {v:PROBLEMS.filter(p=>p.overdue!==null).length, k:'reviews due'},
-];
+  PROBLEMS.some(p=>p.overdue!==null)
+    && {v:PROBLEMS.filter(p=>p.overdue!==null).length, k:'reviews due'},
+].filter(Boolean);
 $('tiles').innerHTML = tiles.map(t => `<div class="tile"><div class="v">${t.v}</div>
   <div class="k">${t.k}</div>${t.bar!=null?`<div class="track"><i style="width:${t.bar}%"></i></div>`:''}</div>`).join('');
 
-// hero — optimal first
+// hero — optimal first once there's a sample; until then, the count that IS honest at n=1.
+// A rate needs MIN_RATE_N to mean anything, but "not yet" was the whole hero for the first five
+// days — the stretch where the habit is most fragile and feedback matters most. Counting reps is
+// not a softer metric, it's just a different and equally true one.
 (function(){
   const o = STATS.optimalFirst;
   if (!o){ const need = STATS.minRateN - STATS.judged;
-    $('hero-opt').innerHTML = `<div class="fig none">not yet</div><div class="side">
-      <div class="t">Need ${need} more attempt${need!==1?'s':''} with a frozen think-log</div>
-      <div class="d">A rate over ${STATS.judged} problem${STATS.judged!==1?'s':''} would be noise.
-      Only attempts you started with <code>./think.sh</code> count here — without the frozen plan I
-      can't tell a clean solve from a hinted one, so it stays out of the sample.</div></div>`; return; }
+    $('hero-opt').innerHTML = `<div class="fig">${STATS.solved}/${STATS.total}</div><div class="side">
+      <div class="t">${STATS.solved===0 ? 'Nothing logged yet — that starts tonight'
+        : 'solved, ' + STATS.days + ' day' + (STATS.days!==1?'s':'') + ' practised, '
+          + STATS.streak + '-day streak'}</div>
+      <div class="d">The optimal-first rate takes over this spot after
+      ${need} more attempt${need!==1?'s':''} with a frozen think-log — a rate over
+      ${STATS.judged} of them would be noise. Only attempts you started with <code>./think.sh</code>
+      count towards it; without the frozen plan I can't tell a clean solve from a hinted one.</div>
+      </div>`; return; }
   const pct = Math.round(100*o.rate);
   const lvl = pct>=60 ? 'good' : pct>=40 ? 'watch' : 'gap';
   const msg = pct>=60 ? "You're finding the efficient idea yourself. That's the interview skill."
@@ -1197,6 +1242,33 @@ $('log').innerHTML = log.length
       <td>${p.minutes}</td><td><span class="pill">${esc(p.pattern||'—')}</span></td>
       <td><a href="${notes(p)}">notes</a></td></tr>`).join('') + '</tbody>'
   : '<tbody><tr><td class="empty">Nothing yet. Day 1 is 1768. Merge Strings Alternately.</td></tr></tbody>';
+
+/* ---------- show only what has something to say ----------
+   Every card below used to render its own "no data yet" placeholder, so an empty repo greeted you
+   with eleven of them at once. A section that appears the day it earns content is a reward; a wall
+   of dashes on day one just reads as failure. Nothing here fakes a number — these are the same
+   cards with the same thresholds, only hidden until their data exists. */
+const firstId = (STATS.next||'').split('.')[0];
+if (!STATS.attempted){
+  $('start').hidden = false;
+  $('start').innerHTML = `<h3>Day one</h3>
+    <p>Everything else on this page appears as you feed it. Right now there is exactly one thing
+    to do, and it isn't on this page.</p>
+    <code class="cmd">./think.sh ${esc(firstId)}</code>
+    <p>Write your plan before you look at anything — that frozen note is the only thing that can
+    ever score whether you <em>recognised</em> the pattern or just arrived at it. Then solve it on
+    LeetCode with the timer on, and run <code>/debrief ${esc(firstId)}</code>.</p>`;
+}
+[['s-trend', STATS.judged >= STATS.minRateN],
+ ['s-diag',  (STATS.diagnosis||[]).length > 0],
+ ['s-att',   att.length > 0],
+ ['s-mist',  Object.keys(STATS.mistakes||{}).length > 0],
+ ['s-mastery', (STATS.patternMastery||[]).length > 0],
+ ['s-prog',  STATS.solved > 0],
+ ['s-sec',   STATS.solved > 0],
+ ['s-queue', due.length > 0],
+ ['s-map',   STATS.solved > 0],
+ ['s-log',   log.length > 0]].forEach(([id, keep]) => { if (!keep) $(id).hidden = true; });
 
 /* ---------- charts (theme + size aware; rebuilt on any control change) ---------- */
 let charts = [];

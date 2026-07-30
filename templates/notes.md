@@ -5,11 +5,12 @@ Solo result: solved / timeout / wrong-answer  |  Time used: <n> min
 
 ## ⭐ THINK-LOG
 <!--
-Your frozen think-log is already at `think-log.md` in this folder — `./think.sh <id>` created and
-committed it before you coded. Paste its filled contents in here at debrief. It's the only thing
-that lets recognition be scored; without it, `recognized` is "unknown", not guessed.
+Nothing to write here. Your frozen think-log lives beside this file, committed by `./think.sh <id>`
+before you coded, and that committed copy is the ONLY thing recognition is scored from — a copy
+pasted in here after the fact can drift from it, which is exactly what it exists to prevent.
+Without a frozen log, `recognized` is "unknown", not guessed.
 -->
-<paste your frozen think-log here>
+→ [`think-log.md`](./think-log.md) — frozen before coding, read it there.
 
 ## Where I got stuck
 

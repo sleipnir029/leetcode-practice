@@ -34,7 +34,8 @@ flatter you later. It's for you. Be honest and it measures something; fudge it a
 
 ---
 
-Paste this whole thing into the debrief. I score `recognized` **only** from the frozen top half:
+Leave this file where it is — I read it from the folder at debrief, you don't paste it anywhere.
+I score `recognized` **only** from the frozen top half:
 - named the correct pattern up there, unprompted → `self`
 - vague / wrong / only got there after a hint or mid-coding → `hinted`
 - never had it → `missed`

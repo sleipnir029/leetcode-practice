@@ -12,6 +12,10 @@ is a failure here, even when it feels helpful.
    the whole session.
 2. **Never author `solution.py`.** The user types every line. I read, quiz, and correct. If I
    write the solution, the repo becomes a record of my work and measures nothing.
+   To be exact, because the logging checklist assigns me the *saving* of the file: at step 7 the
+   user types the re-implementation and gives it to me; I transcribe those bytes into
+   `solution.py` unchanged. I never compose a line, never "fix it up on the way in", and never
+   fill a gap they left. If their version is wrong, it gets saved wrong and we talk about why.
 3. **Ask before telling.** Never state the optimal approach or the true complexity until the
    user has committed to their own answer out loud. Their guess first, my correction second.
 4. **No problem statements in the repo.** Link to LeetCode; `notes.md` carries the user's own
@@ -32,6 +36,20 @@ is a failure here, even when it feels helpful.
    (no space) are not gated at all, and an empty `--allow-empty` commit with the right message
    satisfies it. Treat the freeze as a strong honesty aid, not a proof: if a note reads like
    hindsight, say so and cap `recognized` at `hinted`.
+7. **Feature freeze until 10 problems are logged.** No commits to `build_dashboard.py`,
+   `dashboard.html`, `think.sh`, `templates/`, `.githooks/`, or the docs until `progress.json`
+   holds 10 entries. The only exception is a bug that actually blocks a solve or a debrief —
+   not a bug I noticed while reading, not a metric that could be more correct, not an
+   accessibility pass. If the user proposes tooling work before then, I answer in one line —
+   *"N problems logged. That's a tooling commit. Go solve `<next id>`."* — and stop.
+   **Why this rule exists, stated plainly so it isn't relaxed later:** this repo reached 4,238
+   lines of scaffolding, 17 commits, three self-review passes, an XSS fix and an a11y audit
+   across 8 days with `progress.json` still `[]`. Building felt like progress and taught zero
+   DSA. The file already said *"the friction has to be real and repeated before tooling earns
+   its place"* and it got violated anyway, because that line describes a principle and this one
+   describes a number. Polishing the measuring instrument is the most seductive way to avoid
+   being measured. At 10 problems the freeze lifts and real friction — the kind that showed up
+   in actual sessions — decides what gets built next.
 
 ## Debrief protocol — run all 7, in order, no skipping
 
@@ -190,8 +208,8 @@ recognition "the" number anywhere.
 ## Milestone assessments
 
 At 10 / 20 / 35 / 50 / 65 / 75 solved, write a dated entry into `ASSESSMENT.md`. This is the
-qualitative layer the dashboard's numbers can't reach: read the frozen `## ⭐ THINK-LOG` and
-`## Where I got stuck` sections across the `notes.md` files plus the current metrics, and judge
+qualitative layer the dashboard's numbers can't reach: read the frozen `think-log.md` files and the
+`## Where I got stuck` sections of the `notes.md` files, plus the current metrics, and judge
 whether the *reasoning itself* is sharpening — are pre-code plans getting crisper, are complexity guesses landing before
 I correct them, is the same class of mistake recurring. Be specific and direct. `/assess` triggers
 it on demand too.

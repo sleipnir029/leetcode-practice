@@ -34,6 +34,8 @@ and "stuck" are recorded as-is.
 
 When step 7 is done, run the logging checklist in `CLAUDE.md` — all 7 steps. Step 1 is the one that
 creates the files everything else reads: save the step-7 re-implementation to
-`solutions/<nn-section>/<id>-<slug>/solution.py` and fill `notes.md` beside it. Then progress.json →
+`solutions/<nn-section>/<id>-<slug>/solution.py` and fill `notes.md` beside it. Leave the
+`## ⭐ THINK-LOG` section's link alone — the frozen log stays in its own file and is never copied
+into `notes.md`, so the scored original can't drift. Then progress.json →
 patterns.md → mistakes.md → `python3 build_dashboard.py` → commit → milestone check. `/due` quizzes
 from `notes.md` and `/assess` reads it, so skipping step 1 leaves both with nothing.

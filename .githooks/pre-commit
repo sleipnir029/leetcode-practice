@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# pre-commit hook — rebuild dashboard.html whenever progress.json is committed.
+#
+# The rebuild was a manual checklist step and got skipped twice, shipping a page that
+# disagreed with the data. A stale dashboard doesn't fail loudly; it just quietly shows
+# the wrong numbers, which is the one thing this repo can't afford.
+#
+# Only fires when progress.json is actually staged, so ordinary doc/code commits are untouched.
+set -euo pipefail
+
+git diff --cached --name-only | grep -qxF progress.json || exit 0
+
+python3 build_dashboard.py
+git add dashboard.html

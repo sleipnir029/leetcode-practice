@@ -8,7 +8,11 @@ pattern it wants, and to explain out loud why one solution costs more memory tha
 exists to measure whether that's actually happening.
 
 **Progress:** open [`dashboard.html`](dashboard.html) in a browser.
-**After the 75:** [`ROADMAP.md`](ROADMAP.md).
+
+> **The repo is feature-frozen until 10 problems are logged.** Nothing here gets built,
+> tuned or redesigned before then — see hard rule 7 in `CLAUDE.md` for why. What comes
+> after the 75 was planned once and deleted for the same reason; `git log` has it if you
+> want it back at problem 40.
 
 ---
 
@@ -200,10 +204,10 @@ progress.json           one record per logged attempt — the source of truth
 patterns.md             trigger → pattern glossary; the most reusable file here
 mistakes.md             recurring error log
 ASSESSMENT.md           milestone write-ups
-ROADMAP.md              what comes after the 75
 CLAUDE.md               the coaching rules
 think.sh                starts a problem and freezes the plan
 .githooks/commit-msg    refuses a solve commit with no frozen think-log
+.githooks/pre-commit    rebuilds dashboard.html when progress.json changes
 templates/              think-log.md (pre-code) and notes.md (post-debrief)
 solutions/<nn-section>/<id>-<slug>/{think-log.md,solution.py,notes.md}
 ```
